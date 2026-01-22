@@ -7,39 +7,39 @@ run_hooks_in() {
   local target_dir="$2"
   shift 2 || true
 
-  [ "${BRANCHOPS_SKIP_HOOKS:-}" = "1" ] && return 0
+  [ "${WTR_SKIP_HOOKS:-}" = "1" ] && return 0
 
   local repo_root
   repo_root=$(discover_repo_root) || return 0
 
   local hook_files=()
   # Search order:
-  # 1. .branchops/hooks/<name>
-  # 2. .branchops/hooks/<name>.d/*
+  # 1. .wtr/hooks/<name>
+  # 2. .wtr/hooks/<name>.d/*
   # 3. Legacy hooks/<name>
   
-  [ -f "$repo_root/.branchops/hooks/$hook_name" ] && hook_files+=("$repo_root/.branchops/hooks/$hook_name")
+  [ -f "$repo_root/.wtr/hooks/$hook_name" ] && hook_files+=("$repo_root/.wtr/hooks/$hook_name")
   
-  if [ -d "$repo_root/.branchops/hooks/$hook_name.d" ]; then
+  if [ -d "$repo_root/.wtr/hooks/$hook_name.d" ]; then
     while read -r f; do
       hook_files+=("$f")
-    done < <(find "$repo_root/.branchops/hooks/$hook_name.d" -maxdepth 1 -type f -executable | sort)
+    done < <(find "$repo_root/.wtr/hooks/$hook_name.d" -maxdepth 1 -type f -executable | sort)
   fi
   
   [ -f "$repo_root/hooks/$hook_name" ] && hook_files+=("$repo_root/hooks/$hook_name")
 
-  # Also check config-based hooks (branchops.hook.<name>)
+  # Also check config-based hooks (wtr.hook.<name>)
   local config_hooks
-  config_hooks=$(cfg_get_all "branchops.hook.$hook_name")
+  config_hooks=$(cfg_get_all "wtr.hook.$hook_name")
 
   # Execute
   for hook in "${hook_files[@]}"; do
     log_info "Running hook: $(basename "$hook")"
     (
       # Export standard env vars
-      export BRANCHOPS_HOOK="$hook_name"
-      export BRANCHOPS_TARGET_DIR="$target_dir"
-      export BRANCHOPS_REPO_ROOT="$repo_root"
+      export WTR_HOOK="$hook_name"
+      export WTR_TARGET_DIR="$target_dir"
+      export WTR_REPO_ROOT="$repo_root"
       # Export additional vars passed as args
       [ -n "${*:-}" ] && export "$@"
       
@@ -55,9 +55,9 @@ run_hooks_in() {
       [ -z "$cmd" ] && continue
       log_info "Running config hook: $cmd"
       (
-        export BRANCHOPS_HOOK="$hook_name"
-        export BRANCHOPS_TARGET_DIR="$target_dir"
-        export BRANCHOPS_REPO_ROOT="$repo_root"
+        export WTR_HOOK="$hook_name"
+        export WTR_TARGET_DIR="$target_dir"
+        export WTR_REPO_ROOT="$repo_root"
         [ -n "${*:-}" ] && export "$@"
         
         cd "$target_dir" && eval "$cmd"

@@ -1,6 +1,6 @@
-# Contributing to BranchOps
+# Contributing to wtr
 
-Thank you for your interest in contributing to BranchOps!
+Thank you for your interest in contributing to wtr!
 
 ## Design Principles
 1. **Cross-platform first** - Code must work on macOS, Linux, and Windows Git Bash.

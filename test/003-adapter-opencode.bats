@@ -16,16 +16,16 @@ setup() {
   git config --local init.defaultBranch main
   git commit --allow-empty -m "init" >/dev/null
   
-  # Allow branchops to accept "current-branch" (which doesn't exist)? 
+  # Allow wtr to accept "current-branch" (which doesn't exist)? 
   # Actually, "current-branch" is just an argument. If we pass ".", it might work?
   # Or we need to create a dummy directory acting as worktree.
   mkdir -p "$TMP/worktree"
   
-  # Setup branchops env
-  BOP="$BATS_TEST_DIRNAME/../bin/branchops"
+  # Setup wtr env
+  BOP="$BATS_TEST_DIRNAME/../bin/wtr"
 
-  # Configure branchops
-  "$BOP" config set branchops.worktrees.dir ".worktrees" --local
+  # Configure wtr
+  "$BOP" config set wtr.worktrees.dir ".worktrees" --local
 }
 
 teardown() {
@@ -33,7 +33,7 @@ teardown() {
 }
 
 @test "opencode adapter: open command" {
-  export BRANCHOPS_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  export WTR_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
   run "$BOP" ai 1 --ai opencode -- open --test-flag
   
   # It should find the mock opencode and run it
@@ -42,7 +42,7 @@ teardown() {
 }
 
 @test "opencode adapter: analyze command" {
-  export BRANCHOPS_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+  export WTR_DIR="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
   run "$BOP" ai 1 --ai opencode -- analyze --deep
   
   [ "$status" -eq 0 ]

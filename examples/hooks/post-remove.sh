@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# post-remove.sh - Example post-removal hook for branchops
+# post-remove.sh - Example post-removal hook for wtr
 # This script runs in the MAIN repository root after a worktree is deleted.
 
 set -e

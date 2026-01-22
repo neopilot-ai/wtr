@@ -10,7 +10,7 @@ case "$cmd" in
         echo "Switching to your configured editor to use Continue..."
         # This is a bit recursive, but often users want to 'launch' it.
         # For now, we just suggest using the editor command.
-        echo "Try: git branchops editor $(basename "$worktree")"
+        echo "Try: git wtr editor $(basename "$worktree")"
         ;;
     *)
         echo "Unknown command: $cmd" >&2

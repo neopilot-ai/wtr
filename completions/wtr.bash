@@ -1,5 +1,5 @@
-# bash completion for branchops
-_branchops() {
+# bash completion for wtr
+_wtr() {
   local cur prev opts
   COMPREPLY=()
   _get_comp_words_by_ref -n : cur prev 2>/dev/null || return 0
@@ -62,4 +62,4 @@ _branchops() {
   __ltrim_colon_completions "$cur" 2>/dev/null || true
 }
 
-complete -F _branchops branchops
+complete -F _wtr wtr

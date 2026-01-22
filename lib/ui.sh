@@ -95,7 +95,7 @@ prompt_select_worktree() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || return 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   # Get list of worktrees (ID\tBranch\tPath)
   local list=()

@@ -18,11 +18,11 @@ setup() {
   export PATH="$TMP/bin:$PATH"
 
   # symlink the cli to PATH (adjust path to your project during CI)
-  BOP="$BATS_TEST_DIRNAME/../bin/branchops"
-  [ -f "$BOP" ] || skip "branchops binary not found at $BOP"
+  BOP="$BATS_TEST_DIRNAME/../bin/wtr"
+  [ -f "$BOP" ] || skip "wtr binary not found at $BOP"
   
-  # Configure branchops to use .worktrees inside repo (legacy/test mode)
-  "$BOP" config set branchops.worktrees.dir ".worktrees" --local
+  # Configure wtr to use .worktrees inside repo (legacy/test mode)
+  "$BOP" config set wtr.worktrees.dir ".worktrees" --local
 }
 
 teardown() {
@@ -30,14 +30,14 @@ teardown() {
 }
 
 @test "create worktree (dry-run) succeeds without side effects" {
-  "$BOP" config set branchops.editor.default vscode --local
+  "$BOP" config set wtr.editor.default vscode --local
   NEOPILOT_DRY_RUN=1 run "$BOP" create feature/test --editor
   [ "$status" -eq 0 ]
   [[ "${output}" =~ "dry-run" ]]
 }
 
 @test "create worktree with invalid editor fails" {
-  "$BOP" config set branchops.editor.default nonexistent-editor --local
+  "$BOP" config set wtr.editor.default nonexistent-editor --local
   run "$BOP" create feature/test-fail --editor
   [ "$status" -ne 0 ]
   [[ "${output}" =~ "unknown editor" || "${output}" =~ "not available" ]]
@@ -50,7 +50,7 @@ teardown() {
   git commit -m "Add .env" >/dev/null
   
   # Configure copy
-  "$BOP" config add branchops.copy.include ".env" --local
+  "$BOP" config add wtr.copy.include ".env" --local
   
   NEOPILOT_DRY_RUN=1 run "$BOP" create feature/test-copy
   [ "$status" -eq 0 ]
@@ -59,7 +59,7 @@ teardown() {
 }
 
 @test "create worktree with AI integration" {
-  "$BOP" config set branchops.ai.default aider --local
+  "$BOP" config set wtr.ai.default aider --local
   NEOPILOT_DRY_RUN=1 run "$BOP" create feature/test-ai --ai
   [ "$status" -eq 0 ]
   [[ "${output}" =~ "aider" ]]

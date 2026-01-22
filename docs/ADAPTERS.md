@@ -1,8 +1,8 @@
-# BranchOps Adapter System
+# wtr Adapter System
 
 ## Overview
 
-The BranchOps adapter system extends the CLI's functionality by adding support for various editors and AI tools. This document explains how to use existing adapters and create new ones.
+The wtr adapter system extends the CLI's functionality by adding support for various editors and AI tools. This document explains how to use existing adapters and create new ones.
 
 ## Available Adapters
 
@@ -41,13 +41,13 @@ You can specify an adapter directly when creating or opening a worktree:
 
 ```bash
 # Create and open in VS Code
-git branchops new my-feature --editor vscode
+git wtr new my-feature --editor vscode
 
 # Create and start Aider
-git branchops new my-feature --ai aider
+git wtr new my-feature --ai aider
 
 # Chain them together
-git branchops new my-feature -e -a
+git wtr new my-feature -e -a
 ```
 
 ### Configuration (The Recommended Way)
@@ -55,8 +55,8 @@ git branchops new my-feature -e -a
 Set your defaults once so you don't have to use flags:
 
 ```bash
-git branchops config set branchops.editor.default cursor
-git branchops config set branchops.ai.default gemini
+git wtr config set wtr.editor.default cursor
+git wtr config set wtr.ai.default gemini
 ```
 
 ## Creating Custom Adapters
@@ -119,10 +119,10 @@ esac
 
 The following variables can be set in your shell to override configurations:
 
-- `BRANCHOPS_DEBUG=1` - Enable detailed debug logging
-- `BRANCHOPS_EDITOR_DEFAULT` - Override default editor
-- `BRANCHOPS_AI_DEFAULT` - Override default AI tool
-- `BRANCHOPS_WORKTREES_DIR` - Override base directory for worktrees
+- `WTR_DEBUG=1` - Enable detailed debug logging
+- `WTR_EDITOR_DEFAULT` - Override default editor
+- `WTR_AI_DEFAULT` - Override default AI tool
+- `WTR_WORKTREES_DIR` - Override base directory for worktrees
 
 ## Troubleshooting
 
@@ -131,7 +131,7 @@ The following variables can be set in your shell to override configurations:
 Use the `adapter` command to see which tools are recognized and available in your PATH:
 
 ```bash
-git branchops adapter
+git wtr adapter
 ```
 
 ### Permissions
@@ -147,3 +147,12 @@ chmod +x adapters/editor/my-editor.sh
 1. **Backgrounding**: For GUI editors, always run the command in the background (`&`) and redirect output to `/dev/null` to keep the terminal free.
 2. **Path Respect**: Use `$PATH` to find binaries instead of hardcoding absolute paths.
 3. **Workspace Support**: If your editor supports workspace files (like `.code-workspace`), use the third argument provided to the `open` command.
+
+## Adapter Contract
+
+All adapters must adhere to the following contract:
+
+# REQUIRED FUNCTIONS
+adapter_detect()   # returns 0 if available
+adapter_run()      # execute command
+adapter_name()     # human-readable name

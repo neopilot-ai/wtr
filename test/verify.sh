@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test/verify.sh - basic manual verification for branchops
+# test/verify.sh - basic manual verification for wtr
 
 set -e
 
@@ -14,12 +14,12 @@ echo "initial content" > README.md
 git add README.md
 git commit -m "initial commit"
 
-# Path to branchops
-BOP="/Users/neopilot/Projects/np-branchops/bin/branchops"
+# Path to wtr
+BOP="/Users/neopilot/Projects/wtr/bin/wtr"
 
 echo "--- Testing: config set/get ---"
-"$BOP" config set branchops.test.key "hello-world" --local
-VAL=$("$BOP" config get branchops.test.key)
+"$BOP" config set wtr.test.key "hello-world" --local
+VAL=$("$BOP" config get wtr.test.key)
 if [ "$VAL" = "hello-world" ]; then
   echo "[PASS] config set/get"
 else

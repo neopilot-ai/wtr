@@ -13,13 +13,13 @@ GRAY="\033[0;90m"
 
 # Logging functions with file support
 _log_to_file() {
-  if [ -n "${BRANCHOPS_LOG_FILE:-}" ]; then
+  if [ -n "${WTR_LOG_FILE:-}" ]; then
     local level="$1"
     shift
     local msg
     # Strip ANSI colors for file logging
     msg=$(echo "$*" | sed 's/\x1b\[[0-9;]*m//g')
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [$level] $msg" >> "$BRANCHOPS_LOG_FILE"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [$level] $msg" >> "$WTR_LOG_FILE"
   fi
 }
 
@@ -29,7 +29,7 @@ log_error() { echo -e "${RED}[error]${RESET} $*" >&2; _log_to_file "ERROR" "$*";
 log_warn() { echo -e "${YELLOW}[warn]${RESET} $*" >&2; _log_to_file "WARN" "$*"; }
 log_step() { echo -e "${CYAN}==>${RESET} $*" >&2; _log_to_file "STEP" "$*"; }
 log_debug() { 
-  if [ "${BRANCHOPS_DEBUG:-}" = "1" ] || [ "${NEOPILOT_DEBUG:-}" = "1" ]; then
+  if [ "${WTR_DEBUG:-}" = "1" ] || [ "${NEOPILOT_DEBUG:-}" = "1" ]; then
     echo -e "${GRAY}[debug]${RESET} $*" >&2
     _log_to_file "DEBUG" "$*"
   fi

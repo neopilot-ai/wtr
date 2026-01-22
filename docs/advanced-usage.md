@@ -1,6 +1,6 @@
 # Advanced Usage & Workflows
 
-This guide covers advanced patterns and power-user workflows to help you get the most out of BranchOps.
+This guide covers advanced patterns and power-user workflows to help you get the most out of wtr.
 
 ## Parallel Development Patterns
 
@@ -13,13 +13,13 @@ Use the `--force` and `--name` flags to create multiple worktrees for the same b
 
 ```bash
 # Main development worktree
-git branchops new feature/auth
+git wtr new feature/auth
 
 # Frontend-only variant
-git branchops new feature/auth --force --name frontend
+git wtr new feature/auth --force --name frontend
 
 # Backend-only variant
-git branchops new feature/auth --force --name backend
+git wtr new feature/auth --force --name backend
 ```
 
 This creates three separate directories:
@@ -31,7 +31,7 @@ This creates three separate directories:
 If you've already started work on a branch and want to spawn a parallel worktree from your current HEAD (including commits not yet pushed):
 
 ```bash
-git branchops new feature/auth-refactor --from-current
+git wtr new feature/auth-refactor --from-current
 ```
 
 ## Advanced Automation with Hooks
@@ -41,7 +41,7 @@ Hooks allow you to automate the "boring parts" of setting up and tearing down de
 ### The "Auto-Install" Pattern
 In repositories with heavy dependencies, use `postCreate` hooks to ensure your environment is ready as soon as you `cd` in.
 
-Add to your `.branchopsconfig`:
+Add to your `.wtrconfig`:
 ```ini
 [hooks]
     # Install dependencies automatically
@@ -76,7 +76,7 @@ Managing monorepos (like Turborepo or Nx) with worktrees requires a bit more coo
 If you only care about a specific package in a monorepo, you can use hooks to scope your editor to just that directory.
 
 ```bash
-git branchops config set branchops.hook.postCreate "cd packages/api && npm install" --local
+git wtr config set wtr.hook.postCreate "cd packages/api && npm install" --local
 ```
 
 ### Shared Dependency Management
@@ -98,12 +98,12 @@ Use the `copy` command to push specific files from your main repo to one or all 
 
 ```bash
 # Push latest .env.example to a specific worktree
-git branchops copy feature-auth -- .env.example
+git wtr copy feature-auth -- .env.example
 
 # Sync a specific directory to ALL active worktrees
-git branchops copy -a -- "src/types/*"
+git wtr copy -a -- "src/types/*"
 # Sync a specific directory to ALL active worktrees
-git branchops copy -a -- "src/types/*"
+git wtr copy -a -- "src/types/*"
 ```
 
 ### Git State Synchronization
@@ -112,13 +112,13 @@ Keep your worktrees up-to-date with remote changes using the `sync` command.
 #### Standard Rebase (Default)
 Updates the worktree by rebasing on top of the remote branch:
 ```bash
-git branchops sync feature-auth
+git wtr sync feature-auth
 ```
 
 #### Hard Reset (The "Nuclear Option")
 If a worktree has driften too far or messed up state, force it to match the remote:
 ```bash
-git branchops sync --reset feature-auth
+git wtr sync --reset feature-auth
 ```
 
 
@@ -128,29 +128,29 @@ git branchops sync --reset feature-auth
 For a quick bird's-eye view of all your active worktrees (their branch, dirty status, and age), use the dashboard:
 
 ```bash
-git branchops dashboard
+git wtr dashboard
 ```
 
 ### The Interactive UI
 If you prefer a visual menu to quickly jump between worktrees or perform operations, run the terminal UI:
 
 ```bash
-git branchops ui
+git wtr ui
 ```
 
 ## 🤖 Advanced AI Agent Workflows
 
-BranchOps is built to coordinate multiple AI agents. Here is a recommended pattern for high-velocity development.
+wtr is built to coordinate multiple AI agents. Here is a recommended pattern for high-velocity development.
 
 ### Pattern: The Parallel Reviewer
 1. Create a variant of your feature branch:
-   `git branchops new feature/api-v2 --force --name agent-review`
+   `git wtr new feature/api-v2 --force --name agent-review`
 2. Start a specialized agent (like Gemini) to analyze the whole worktree:
-   `git branchops ai agent-review --ai gemini -- analyze`
+   `git wtr ai agent-review --ai gemini -- analyze`
 3. Continue working in your primary `cursor` worktree while the agent performs its background analysis.
 
 ### Pattern: The Multi-Agent Fleet
-Define a preset in your `.branchopsconfig` for a swarm of agents:
+Define a preset in your `.wtrconfig` for a swarm of agents:
 ```ini
 [presets]
     swarm = --ai aider --from-current
@@ -159,18 +159,18 @@ Define a preset in your `.branchopsconfig` for a swarm of agents:
 Run it multiple times to spin up a fleet of aider agents on different variants of your branch.
 
 ### Merged PR Cleanup
-Once a Pull Request is merged, the worktree and local branch are no longer needed. BranchOps can verify the PR state on GitHub and clean them up for you:
+Once a Pull Request is merged, the worktree and local branch are no longer needed. wtr can verify the PR state on GitHub and clean them up for you:
 
 ```bash
 # Requires GitHub CLI (gh)
-git branchops clean --merged
+git wtr clean --merged
 ```
 
 ### The "Doctor" Checkup
 If something feels wrong (e.g., commands not found, paths broken), run the doctor command to verify your installation:
 
 ```bash
-git branchops doctor
+git wtr doctor
 ```
 
 ## Shell Integration Tricks
@@ -180,7 +180,7 @@ Add an alias to your shell (`.zshrc` or `.bashrc`) to quickly jump into worktree
 
 ```bash
 # Jump and go
-alias bgo='cd $(git branchops go $1)'
+alias bgo='cd $(git wtr go $1)'
 ```
 
 Usage: `bgo my-feature`
@@ -190,13 +190,13 @@ Chain commands for a "one-touch" setup:
 
 ```bash
 # Create, open in editor, and start AI in one go
-git branchops new hotfix/urgent && git branchops editor hotfix/urgent && git branchops ai hotfix/urgent
+git wtr new hotfix/urgent && git wtr editor hotfix/urgent && git wtr ai hotfix/urgent
 
 ### Hook Synchronization
 If you maintain custom Git hooks (e.g., `pre-commit` or `commit-msg`) in your main repository, you can sync them to all worktrees at once:
 
 ```bash
-# Requires .branchops/git-hooks directory in main repo
-git branchops hooks sync
+# Requires .wtr/git-hooks directory in main repo
+git wtr hooks sync
 ```
 ```

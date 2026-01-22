@@ -1,0 +1,7 @@
+[copy]
+    include = .env.example
+    # includeDirs = node_modules
+
+[hooks]
+    postCreate = "./.wtr/hooks/post-create.sh"
+    preRemove = "./.wtr/hooks/pre-remove.sh"

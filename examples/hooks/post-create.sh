@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# post-create.sh - Example post-creation hook for branchops
+# post-create.sh - Example post-creation hook for wtr
 # This script runs inside the NEW worktree directory.
 
 set -e
@@ -29,6 +29,6 @@ elif [ -f "requirements.txt" ]; then
 fi
 
 # 3. Mark as initialized
-echo "$(date)" > .branchops_initialized
+echo "$(date)" > .wtr_initialized
 
 echo "==> Worktree is ready!"

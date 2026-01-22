@@ -1,8 +1,8 @@
-# branchops
+# wtr
 
 > **Modern Git Worktree Orchestration for Parallel Development**
 
-[![GitHub Stars](https://img.shields.io/github/stars/neopilot-ai/np-branchops?style=flat-square&logo=github&label=Stars)](https://github.com/neopilot-ai/np-branchops/stargazers)
+[![GitHub Stars](https://img.shields.io/github/stars/neopilot-ai/wtr?style=flat-square&logo=github&label=Stars)](https://github.com/neopilot-ai/wtr/stargazers)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square)](LICENSE)
 [![Bash](https://img.shields.io/badge/Bash-3.2%2B-green.svg?style=flat-square&logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
 [![Git](https://img.shields.io/badge/Git-2.5%2B-orange.svg?style=flat-square&logo=git&logoColor=white)](https://git-scm.com/)
@@ -14,11 +14,11 @@
 ## 📖 Table of Contents
 
 - [🚀 Overview](#-overview)
-- [🏆 Why Teams Adopt branchops](#-why-teams-adopt-branchops)
+- [🏆 Why Teams Adopt wtr](#-why-teams-adopt-wtr)
 - [📸 Demo](#-demo)
 - [⚡ Quick Start](#-quick-start)
 - [🏃 Daily Workflow](#-daily-workflow)
-- [✨ Why branchops?](#-why-branchops)
+- [✨ Why wtr?](#-why-wtr)
 - [📐 Architecture & Workflow](#-architecture--workflow)
 - [🌟 Features](#-features)
 - [🧩 Commands Overview](#-commands-overview)
@@ -29,7 +29,7 @@
 ## 🚀 Overview
 
 
-**branchops** is a portable, cross-platform CLI that makes **Git worktrees practical, fast, and enjoyable**.
+**wtr** is a portable, cross-platform CLI that makes **Git worktrees practical, fast, and enjoyable**.
 
 It is designed for **modern parallel development**:
 
@@ -38,13 +38,13 @@ It is designed for **modern parallel development**:
 * Running tests on `main` while building features
 * Spinning up **multiple AI agents on different branches**
 
-If Git worktrees are powerful but painful, **branchops is the missing UX layer**.
+If Git worktrees are powerful but painful, **wtr is the missing UX layer**.
 
 ---
 
-## 🏆 Why Teams Adopt branchops
+## 🏆 Why Teams Adopt wtr
 
-Engineering teams use `branchops` to eliminate the "branch switching tax" and enable high-velocity parallel workflows.
+Engineering teams use `wtr` to eliminate the "branch switching tax" and enable high-velocity parallel workflows.
 
 1. **Zero-Stash Workflow**: Stop stashing half-finished work. Just spin up a new worktree and keep your context.
 2. **Instant PR Reviews**: Review a teammate's PR in a dedicated directory without touching your active workspace.
@@ -56,7 +56,7 @@ Engineering teams use `branchops` to eliminate the "branch switching tax" and en
 
 ## 📸 Demo
 
-[![branchops Demo](https://img.shields.io/badge/Demo-Watch_CLI_in_Action-blueviolet?style=for-the-badge&logo=asciinema)](https://github.com/neopilot-ai/np-branchops)
+[![wtr Demo](https://img.shields.io/badge/Demo-Watch_CLI_in_Action-blueviolet?style=for-the-badge&logo=asciinema)](https://github.com/neopilot-ai/wtr)
 
 > **Note:** We are currently recording a high-quality terminal GIF. In the meantime, you can explore the [Quick Start](#-quick-start) to see it for yourself!
 
@@ -87,7 +87,7 @@ Git worktrees exist — but the CLI is verbose, manual, and error-prone.
 
 ### The Solution
 
-**branchops** wraps `git worktree` with:
+**wtr** wraps `git worktree` with:
 
 * Clean commands
 * Smart defaults
@@ -101,8 +101,8 @@ Git worktrees exist — but the CLI is verbose, manual, and error-prone.
 ### Installation
 
 ```bash
-git clone https://github.com/neopilot-ai/np-branchops.git
-cd np-branchops
+git clone https://github.com/neopilot-ai/wtr.git
+cd wtr
 ./install.sh
 ```
 
@@ -116,21 +116,21 @@ cd np-branchops
 **macOS (Homebrew):**
 
 ```bash
-ln -s "$(pwd)/bin/git-branchops" "$(brew --prefix)/bin/git-branchops"
+ln -s "$(pwd)/bin/git-wtr" "$(brew --prefix)/bin/git-wtr"
 ```
 
 **Linux / macOS (Intel):**
 
 ```bash
 sudo mkdir -p /usr/local/bin
-sudo ln -s "$(pwd)/bin/git-branchops" /usr/local/bin/git-branchops
+sudo ln -s "$(pwd)/bin/git-wtr" /usr/local/bin/git-wtr
 ```
 
 **User-local:**
 
 ```bash
 mkdir -p ~/bin
-ln -s "$(pwd)/bin/git-branchops" ~/bin/git-branchops
+ln -s "$(pwd)/bin/git-wtr" ~/bin/git-wtr
 export PATH="$HOME/bin:$PATH"
 ```
 
@@ -142,42 +142,42 @@ export PATH="$HOME/bin:$PATH"
 
 ```bash
 # One-time per repo setup
-git branchops config set branchops.editor.default cursor
-git branchops config set branchops.ai.default claude
+git wtr config set wtr.editor.default cursor
+git wtr config set wtr.ai.default claude
 
 # Create worktrees
-git branchops new my-feature
-git branchops new my-feature --editor
-git branchops new my-feature --ai
-git branchops new my-feature -e -a
+git wtr new my-feature
+git wtr new my-feature --editor
+git wtr new my-feature --ai
+git wtr new my-feature -e -a
 
 # Navigate & run
-git branchops editor my-feature
-git branchops ai my-feature
-git branchops run my-feature npm test
+git wtr editor my-feature
+git wtr ai my-feature
+git wtr run my-feature npm test
 
 # Cleanup
-git branchops rm my-feature
-git branchops clean --merged
+git wtr rm my-feature
+git wtr clean --merged
 
 # 🎭 Advanced: Using Presets
 # Define a "frontend" setup once, use it everywhere
-git branchops config set branchops.preset.frontend.copy.include "**/.env.local"
-git branchops config set branchops.preset.frontend.hooks.postCreate "npm install"
+git wtr config set wtr.preset.frontend.copy.include "**/.env.local"
+git wtr config set wtr.preset.frontend.hooks.postCreate "npm install"
 
 # Spin up a full environment in one command
-git branchops new feature-login --preset frontend --editor
+git wtr new feature-login --preset frontend --editor
 ```
 
 ---
 
-## ✨ Why branchops?
+## ✨ Why wtr?
 
-| Workflow        | Raw Git        | branchops                      |
+| Workflow        | Raw Git        | wtr                      |
 | --------------- | -------------- | ------------------------------ |
-| Create worktree | Verbose paths  | `git branchops new feature`    |
-| Open editor     | Manual `cd`    | `git branchops editor feature` |
-| Start AI tool   | Manual setup   | `git branchops ai feature`     |
+| Create worktree | Verbose paths  | `git wtr new feature`    |
+| Open editor     | Manual `cd`    | `git wtr editor feature` |
+| Start AI tool   | Manual setup   | `git wtr ai feature`     |
 | Copy env/config | Manual         | Automatic rules                |
 | Run setup       | Manual scripts | Hooks                          |
 | Cleanup         | Error-prone    | Smart clean                    |
@@ -189,11 +189,11 @@ git branchops new feature-login --preset frontend --editor
 ## 📐 Architecture & Workflow
 
 ### How it Works
-`branchops` acts as a coordination layer between Git, your editors, and automation scripts.
+`wtr` acts as a coordination layer between Git, your editors, and automation scripts.
 
 ```mermaid
 graph TD
-    A[branchops CLI] --> B[Git Core]
+    A[wtr CLI] --> B[Git Core]
     B --> C[Worktree A]
     B --> D[Worktree B]
     A --> E[Adapters]
@@ -204,23 +204,23 @@ graph TD
     H --> J[Post-Remove Cleanup]
 ```
 
-### The branchops Lifecycle
+### The wtr Lifecycle
 
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant B as branchops
+    participant B as wtr
     participant G as Git
     participant E as Editor/AI
 
-    U->>B: git branchops new feature-1
+    U->>B: git wtr new feature-1
     B->>G: git worktree add ../feature-1
     G-->>B: success
     B->>B: Copy config/env files
     B->>B: Run postCreate hooks
-    U->>B: git branchops editor feature-1
+    U->>B: git wtr editor feature-1
     B->>E: Open Editor in feature-1 dir
-    U->>B: git branchops rm feature-1
+    U->>B: git wtr rm feature-1
     B->>G: git worktree remove feature-1
     B->>B: Run postRemove hooks
 ```
@@ -236,7 +236,7 @@ sequenceDiagram
 * AI coding tools (Claude, Gemini, Aider, Copilot, Cursor...)
 * Smart file copying (env/config sync)
 * Post-create / post-remove hooks
-* Shared team configuration via `.branchopsconfig`
+* Shared team configuration via `.wtrconfig`
 * Parallel workflows & automation-friendly
 * Bash, Zsh, Fish completions
 * Cross-platform support
@@ -246,18 +246,18 @@ sequenceDiagram
 ## 🧩 Commands Overview
 
 ```bash
-git branchops new <branch>
-git branchops editor <branch>
-git branchops ai <branch>
-git branchops run <branch> <cmd>
-git branchops go <branch>
-git branchops list
-git branchops rm <branch>
-git branchops clean
-git branchops config
+git wtr new <branch>
+git wtr editor <branch>
+git wtr ai <branch>
+git wtr run <branch> <cmd>
+git wtr go <branch>
+git wtr list
+git wtr rm <branch>
+git wtr clean
+git wtr config
 ```
 
-Run `git branchops help` for full reference.
+Run `git wtr help` for full reference.
 
 ---
 
@@ -266,13 +266,13 @@ Run `git branchops help` for full reference.
 Configuration uses **git config** and supports team sharing.
 
 ```bash
-git branchops config set branchops.editor.default cursor
-git branchops config set branchops.ai.default claude
-git branchops config add branchops.copy.include "**/.env.example"
-git branchops config add branchops.hook.postCreate "npm install"
+git wtr config set wtr.editor.default cursor
+git wtr config set wtr.ai.default claude
+git wtr config add wtr.copy.include "**/.env.example"
+git wtr config add wtr.hook.postCreate "npm install"
 ```
 
-### Team Defaults (`.branchopsconfig`)
+### Team Defaults (`.wtrconfig`)
 
 ```gitconfig
 [defaults]
@@ -289,7 +289,7 @@ git branchops config add branchops.hook.postCreate "npm install"
 Precedence:
 
 1. Local repo config
-2. `.branchopsconfig`
+2. `.wtrconfig`
 3. Global git config
 
 ---
@@ -304,6 +304,66 @@ Precedence:
 
 ---
 
+## � AI Integration with MCP
+
+**wtr** includes a **Model Context Protocol (MCP) server** that enables AI assistants to autonomously manage git worktrees.
+
+### Supported AI Assistants
+
+- ✅ **Claude** (via Claude Desktop or API)
+- ✅ **Cursor** (AI-powered IDE)
+- ✅ **ChatGPT** (via custom integrations)
+- ✅ **Custom Applications** (Node.js, Python, etc.)
+
+### Quick Setup
+
+**Claude Desktop**:
+```bash
+# Install MCP server
+cd mcp-server && npm install && npm run build
+
+# Add to Claude config: ~/Library/Application\ Support/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "wtr": {
+      "command": "node",
+      "args": ["/path/to/wtr/mcp/dist/index.js"]
+    }
+  }
+}
+
+# Restart Claude, then try:
+# "Create a feature branch and run tests"
+```
+
+**Cursor**:
+```json
+// Settings → MCP Servers
+{
+  "wtr": {
+    "type": "stdio",
+    "command": "node",
+    "args": ["/path/to/wtr/mcp/dist/index.js"]
+  }
+}
+```
+
+### Example: AI-Driven Workflow
+
+```
+You: "Create a worktree for PR #42 and run its tests"
+
+Claude:
+1. [Creates worktree] wtr add pr-42 --track
+2. [Lists worktrees] wtr list
+3. [Runs tests] wtr run pr-42 npm test
+4. [Returns results] ✅ All tests pass!
+```
+
+Learn more: [MCP Server Documentation](mcp-server/README.md) | [Integration Guide](mcp-server/INTEGRATION_GUIDE.md)
+
+---
+
 ## 🧠 Advanced Workflows
 
 * Multiple worktrees per branch
@@ -315,6 +375,7 @@ Precedence:
 ➡️ Check out the [**Documentation Index**](docs/README.md) for deeper dives into:
 - [Configuration](docs/configuration.md)
 - [Editor & AI Adapters](docs/ADAPTERS.md)
+- [MCP Server Setup](mcp-server/INTEGRATION_GUIDE.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
 ---

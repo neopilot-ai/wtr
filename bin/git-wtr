@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# git-branchops - Git branchops runner (git subcommand wrapper)
-# Allows running as: git branchops <command>
+# git-wtr - Git wtr runner (git subcommand wrapper)
+# Allows running as: git wtr <command>
 
 # Find this script's real location (resolve symlinks)
 SRC="${BASH_SOURCE[0]}"
@@ -11,5 +11,5 @@ while [ -h "$SRC" ]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SRC")" && pwd)"
 
-# Execute the main branchops script
-exec "$SCRIPT_DIR/branchops" "$@"
+# Execute the main wtr script
+exec "$SCRIPT_DIR/wtr" "$@"

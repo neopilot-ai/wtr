@@ -19,11 +19,11 @@ cfg_get_all() {
   local result
   result=$(git config "${args[@]}" --get-all "$key" 2>/dev/null || true)
 
-  # 2. Check local file-based config if provided (.branchopsconfig)
-  if [ -n "$file_key" ] && [ -f ".branchopsconfig" ]; then
+  # 2. Check local file-based config if provided (.wtrconfig)
+  if [ -n "$file_key" ] && [ -f ".wtrconfig" ]; then
     # Simple parser for key=value
     local file_result
-    file_result=$(grep "^$file_key=" ".branchopsconfig" | cut -d'=' -f2- || true)
+    file_result=$(grep "^$file_key=" ".wtrconfig" | cut -d'=' -f2- || true)
     if [ -n "$file_result" ]; then
       if [ -n "$result" ]; then
         result="$result"$'\n'"$file_result"
@@ -84,19 +84,19 @@ cfg_unset() {
   git config "--$scope" --unset-all "$key" 2>/dev/null || true
 }
 
-# List all branchops.* config values
+# List all wtr.* config values
 cfg_list() {
   local scope="${1:-auto}"
   local args=()
   [ "$scope" != "auto" ] && args+=("--$scope")
 
-  git config "${args[@]}" --list | grep "^branchops\." || true
+  git config "${args[@]}" --list | grep "^wtr\." || true
 
-  # Also show .branchopsconfig if exists and not restricted by scope
+  # Also show .wtrconfig if exists and not restricted by scope
   if [ "$scope" = "auto" ] || [ "$scope" = "local" ]; then
-    if [ -f ".branchopsconfig" ]; then
-      echo "--- from .branchopsconfig ---"
-      cat ".branchopsconfig"
+    if [ -f ".wtrconfig" ]; then
+      echo "--- from .wtrconfig ---"
+      cat ".wtrconfig"
     fi
   fi
 }

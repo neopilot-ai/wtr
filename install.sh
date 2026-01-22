@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh - BranchOps installation script
+# install.sh - installation wtr script
 # Detects platform, installs files, and sets up shell integration.
 
 set -e
@@ -20,9 +20,9 @@ log_warn() { echo -e "${YELLOW}[warn]${RESET} $*" >&2; }
 log_step() { echo -e "${CYAN}==>${RESET} ${BOLD}$*${RESET}"; }
 
 # Default values
-BRANCHOPS_REPO_DIR=$(cd "$(dirname "$0")" && pwd)
-INSTALL_DIR="${BRANCHOPS_INSTALL_DIR:-$HOME/.branchops}"
-BIN_DIR="${BRANCHOPS_BIN_DIR:-$HOME/.local/bin}"
+WTR_REPO_DIR=$(cd "$(dirname "$0")" && pwd)
+INSTALL_DIR="${WTR_INSTALL_DIR:-$HOME/.wtr}"
+BIN_DIR="${WTR_BIN_DIR:-$HOME/.local/bin}"
 
 # 1. Platform Detection
 detect_os() {
@@ -58,17 +58,17 @@ log_info "Shell: $SHELL_TYPE"
 
 # Handle arguments
 if [ "$1" == "--uninstall" ]; then
-  log_step "Uninstalling BranchOps..."
+  log_step "Uninstalling wtr..."
   rm -rf "$INSTALL_DIR"
-  rm -f "$BIN_DIR/branchops"
-  rm -f "$BIN_DIR/git-branchops"
+  rm -f "$BIN_DIR/wtr"
+  rm -f "$BIN_DIR/git-wtr"
   log_success "Uninstalled successfully."
-  log_info "Please manually remove the BranchOps configuration block from your shell config file." 
+  log_info "Please manually remove the wtr configuration block from your shell config file." 
   exit 0
 fi
 
 if [ "$1" == "--upgrade" ]; then
-  log_info "Upgrading BranchOps..."
+  log_info "Upgrading wtr..."
   # Just continue, as the script overwrites by default
 fi
 
@@ -80,7 +80,7 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 if [ -n "$BASH_VERSION" ] && [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
-  log_warn "BranchOps recommends Bash 4.0+. Some features might be limited in older versions."
+  log_warn "wtr recommends Bash 4.0+. Some features might be limited in older versions."
 fi
 
 # 3. Installation Path Setup
@@ -94,20 +94,20 @@ log_info "Binaries to: $BIN_DIR"
 # 4. Copy Files
 log_step "Copying files..."
 for dir in bin lib adapters completions; do
-  if [ -d "$BRANCHOPS_REPO_DIR/$dir" ]; then
+  if [ -d "$WTR_REPO_DIR/$dir" ]; then
     log_info "Copying $dir/..."
-    cp -R "$BRANCHOPS_REPO_DIR/$dir" "$INSTALL_DIR/"
+    cp -R "$WTR_REPO_DIR/$dir" "$INSTALL_DIR/"
   fi
 done
 
 # Ensure binaries are executable
-chmod +x "$INSTALL_DIR/bin/branchops"
-chmod +x "$INSTALL_DIR/bin/git-branchops"
+chmod +x "$INSTALL_DIR/bin/wtr"
+chmod +x "$INSTALL_DIR/bin/git-wtr"
 
 # 5. Symlink Binaries
 log_step "Creating symlinks..."
-ln -sf "$INSTALL_DIR/bin/branchops" "$BIN_DIR/branchops"
-ln -sf "$INSTALL_DIR/bin/git-branchops" "$BIN_DIR/git-branchops"
+ln -sf "$INSTALL_DIR/bin/wtr" "$BIN_DIR/wtr"
+ln -sf "$INSTALL_DIR/bin/git-wtr" "$BIN_DIR/git-wtr"
 
 # 6. Shell Integration
 log_step "Configuring shell integration..."
@@ -115,17 +115,17 @@ log_step "Configuring shell integration..."
 setup_shell_config() {
   local config_file="$1"
   local content="$2"
-  local marker="# BranchOps Config"
+  local marker="# wtr Config"
 
   if [ -f "$config_file" ]; then
     if grep -q "$marker" "$config_file"; then
-      log_info "BranchOps config already exists in $config_file"
+      log_info "wtr config already exists in $config_file"
     else
-      log_info "Adding BranchOps config to $config_file"
+      log_info "Adding wtr config to $config_file"
       echo -e "\n$marker\n$content" >> "$config_file"
     fi
   else
-    log_info "Creating $config_file and adding BranchOps config"
+    log_info "Creating $config_file and adding wtr config"
     echo -e "$marker\n$content" > "$config_file"
   fi
 }
@@ -138,33 +138,33 @@ case "$SHELL_TYPE" in
     SHELL_RC="$HOME/.bashrc"
     [ "$OS" = "macos" ] && SHELL_RC="$HOME/.bash_profile"
     
-    COMPLETION_CONFIG="if [ -f \"$INSTALL_DIR/completions/branchops.bash\" ]; then
-  source \"$INSTALL_DIR/completions/branchops.bash\"
+    COMPLETION_CONFIG="if [ -f \"$INSTALL_DIR/completions/wtr.bash\" ]; then
+  source \"$INSTALL_DIR/completions/wtr.bash\"
 fi"
     setup_shell_config "$SHELL_RC" "$PATH_CONFIG\n$COMPLETION_CONFIG"
     ;;
   zsh)
     SHELL_RC="$HOME/.zshrc"
-    COMPLETION_CONFIG="if [ -f \"$INSTALL_DIR/completions/branchops.zsh\" ]; then
-  source \"$INSTALL_DIR/completions/branchops.zsh\"
+    COMPLETION_CONFIG="if [ -f \"$INSTALL_DIR/completions/wtr.zsh\" ]; then
+  source \"$INSTALL_DIR/completions/wtr.zsh\"
 fi"
     setup_shell_config "$SHELL_RC" "$PATH_CONFIG\n$COMPLETION_CONFIG"
     ;;
   fish)
     FISH_CONFIG_DIR="$HOME/.config/fish/conf.d"
     mkdir -p "$FISH_CONFIG_DIR"
-    echo "set -gx PATH \$PATH $BIN_DIR" > "$FISH_CONFIG_DIR/branchops.fish"
-    if [ -f "$INSTALL_DIR/completions/branchops.fish" ]; then
-      cp "$INSTALL_DIR/completions/branchops.fish" "$HOME/.config/fish/completions/branchops.fish"
+    echo "set -gx PATH \$PATH $BIN_DIR" > "$FISH_CONFIG_DIR/wtr.fish"
+    if [ -f "$INSTALL_DIR/completions/wtr.fish" ]; then
+      cp "$INSTALL_DIR/completions/wtr.fish" "$HOME/.config/fish/completions/wtr.fish"
     fi
-    log_info "Created fish configuration in $FISH_CONFIG_DIR/branchops.fish"
+    log_info "Created fish configuration in $FISH_CONFIG_DIR/wtr.fish"
     ;;
   *)
     log_warn "Unsupported shell '$SHELL_TYPE'. Please manually add $BIN_DIR to your PATH."
     ;;
 esac
 
-log_success "BranchOps installed successfully!"
+log_success "wtr installed successfully!"
 echo ""
 echo "To start using it, restart your shell or run:"
 if [ "$SHELL_TYPE" = "fish" ]; then
@@ -173,4 +173,4 @@ else
   echo "  source $SHELL_RC"
 fi
 echo ""
-echo "Try it out with: git branchops --version"
+echo "Try it out with: git wtr --version"

@@ -1,7 +1,0 @@
-[copy]
-    include = .env.example
-    # includeDirs = node_modules
-
-[hooks]
-    postCreate = "./.branchops/hooks/post-create.sh"
-    preRemove = "./.branchops/hooks/pre-remove.sh"

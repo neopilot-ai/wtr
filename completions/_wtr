@@ -1,6 +1,6 @@
-#compdef branchops
+#compdef wtr
 
-_branchops() {
+_wtr() {
   local curcontext="$curcontext" state line
   typeset -A opt_args
 
@@ -89,4 +89,4 @@ __git_branch_names() {
   _describe 'branch' branches
 }
 
-_branchops "$@"
+_wtr "$@"

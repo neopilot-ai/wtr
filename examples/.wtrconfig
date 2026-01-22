@@ -1,4 +1,4 @@
-# .branchopsconfig - Shared repository configuration for branchops
+# .wtrconfig - Shared repository configuration for wtr
 # This file should be committed to the repository root.
 
 [copy]
@@ -17,11 +17,11 @@
 [hooks]
     # Commands to run in the worktree after creation
     # Relative paths are from worktree root
-    postCreate = "./.branchops/hooks/post-create.sh"
+    postCreate = "./.wtr/hooks/post-create.sh"
     
     # Command to run before removing a worktree
     # If this fails (returns non-zero), removal is aborted
-    preRemove = "./.branchops/hooks/pre-remove.sh"
+    preRemove = "./.wtr/hooks/pre-remove.sh"
     
     # Command to run after worktree is removed
     # postRemove = "echo 'Worktree removed'"

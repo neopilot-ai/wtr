@@ -1,17 +1,17 @@
 # Troubleshooting Guide
 
-This guide provides solutions for common issues and answers to frequently asked questions about BranchOps.
+This guide provides solutions for common issues and answers to frequently asked questions about wtr.
 
 ## Installation Issues
 
-### `git branchops` is not a git command
-**Symptoms:** Running `git branchops <cmd>` returns `git: 'branchops' is not a git command.`
+### `git wtr` is not a git command
+**Symptoms:** Running `git wtr <cmd>` returns `git: 'wtr' is not a git command.`
 
 **Solution:**
-1.  Verify the installation path: `ls -la ~/.local/bin/git-branchops`.
+1.  Verify the installation path: `ls -la ~/.local/bin/git-wtr`.
 2.  Ensure `~/.local/bin` is in your `PATH`.
 3.  On macOS, you may need to restart your terminal or run `source ~/.zshrc`.
-4.  Try running the direct binary to see if it works: `~/.branchops/bin/branchops --version`.
+4.  Try running the direct binary to see if it works: `~/.wtr/bin/wtr --version`.
 
 ### `Permission denied` during installation
 **Symptoms:** `Permission denied` error when running `./install.sh`.
@@ -28,22 +28,22 @@ This guide provides solutions for common issues and answers to frequently asked 
 **Solution:**
 1.  Check if you have an old worktree folder that wasn't properly removed: `git worktree prune`.
 2.  If you want to use the same branch for a different purpose, use the `--force` and `--name` flags:
-    `git branchops new feature-abc --force --name variant-2`
+    `git wtr new feature-abc --force --name variant-2`
 
 ### Branch names with slashes
 **Symptoms:** You want to create a worktree for `feature/login` but the folder name looks strange or fails.
 
 **Solution:**
-BranchOps automatically sanitizes branch names by replacing `/` with `-`. A branch named `feature/login` will be placed in a folder named `feature-login`. This is by design to ensure cross-platform compatibility.
+wtr automatically sanitizes branch names by replacing `/` with `-`. A branch named `feature/login` will be placed in a folder named `feature-login`. This is by design to ensure cross-platform compatibility.
 
 ### Worktrees inside the repository
 **Symptoms:** You created a worktree and now `git status` shows it as an untracked directory.
 
 **Solution:**
-By default, BranchOps tries to create worktrees as **sibling directories** (e.g., `../your-repo-worktrees/`). If you prefer them inside your repo (e.g., in a `.worktrees/` folder), you must add that folder to your `.gitignore`:
+By default, wtr tries to create worktrees as **sibling directories** (e.g., `../your-repo-worktrees/`). If you prefer them inside your repo (e.g., in a `.worktrees/` folder), you must add that folder to your `.gitignore`:
 ```bash
 echo ".worktrees/" >> .gitignore
-git branchops config set branchops.worktrees.dir ".worktrees" --local
+git wtr config set wtr.worktrees.dir ".worktrees" --local
 ```
 
 ## Tool Integration (Editor/AI)
@@ -52,16 +52,16 @@ git branchops config set branchops.worktrees.dir ".worktrees" --local
 **Symptoms:** Configured tool doesn't launch, but no error is shown.
 
 **Solution:**
-1.  Run `git branchops doctor` to check if the tool is in your `PATH`.
+1.  Run `git wtr doctor` to check if the tool is in your `PATH`.
 2.  If you are using a custom editor command, ensure it works from the shell directly.
-3.  Check if you have the correct adapter name. Run `git branchops adapter` to see available options.
+3.  Check if you have the correct adapter name. Run `git wtr adapter` to see available options.
 
 ### VS Code/Cursor workspace isn't used
 **Symptoms:** VS Code opens the folder but doesn't load the `.code-workspace` file.
 
 **Solution:**
 1.  Ensure the `.code-workspace` file is in the root of your repository.
-2.  Check your config: `git branchops config get branchops.editor.workspace`. It should be empty (for auto-detection) or point to the correct relative path.
+2.  Check your config: `git wtr config get wtr.editor.workspace`. It should be empty (for auto-detection) or point to the correct relative path.
 
 ### AI Tool API Keys
 **Symptoms:** Errors like `CLAUDE_API_KEY not set` or `GEMINI_API_KEY not set`.
@@ -84,25 +84,25 @@ git branchops config set branchops.worktrees.dir ".worktrees" --local
 **Symptoms:** Errors relating to `branch --show-current`.
 
 **Solution:**
-This occurs on older versions of Git (pre-2.22). BranchOps includes fallbacks for these versions, but ensure your Git is at least version 2.5.0. Updating Git is highly recommended for the best experience.
+This occurs on older versions of Git (pre-2.22). wtr includes fallbacks for these versions, but ensure your Git is at least version 2.5.0. Updating Git is highly recommended for the best experience.
 
 ## Debugging
 
 If you encounter an issue not listed here, you can enable debug logging to see what's happening under the hood:
 
 ```bash
-BRANCHOPS_DEBUG=1 git branchops <command>
+WTR_DEBUG=1 git wtr <command>
 ```
 
 You can also specify a log file for persistent history:
 ```bash
-export BRANCHOPS_LOG_FILE="/tmp/branchops.log"
-git branchops new test-debug
+export WTR_LOG_FILE="/tmp/wtr.log"
+git wtr new test-debug
 ```
 
 ## Getting Help
 
 If you're still stuck:
-1.  Run `git branchops help` for a list of all commands and options.
+1.  Run `git wtr help` for a list of all commands and options.
 2.  Check the documentation in `docs/`.
-3.  Search or open an issue on the [GitHub repository](https://github.com/neopilot-ai/np-branchops).
+3.  Search or open an issue on the [GitHub repository](https://github.com/neopilot-ai/wtr).

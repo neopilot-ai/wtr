@@ -12,7 +12,7 @@ resolve_base_dir() {
   local repo_name
   repo_name=$(basename "$repo_root")
   local configured
-  configured=$(cfg_get "branchops.worktrees.dir")
+  configured=$(cfg_get "wtr.worktrees.dir")
   if [ -n "$configured" ]; then
     # If absolute, use as is. If relative, join with repo root.
     if [[ "$configured" == /* ]]; then
@@ -30,7 +30,7 @@ resolve_base_dir() {
 resolve_default_branch() {
   local repo_root="$1"
   local configured
-  configured=$(cfg_get "branchops.defaultBranch")
+  configured=$(cfg_get "wtr.defaultBranch")
   if [ -n "$configured" ] && [ "$configured" != "auto" ]; then
     echo "$configured"
     return 0

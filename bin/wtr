@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# branchops - Git worktree runner
+# wtr - Git Worktree Runner
 # Portable, cross-platform git worktree management
 
-set -e
+set -euo pipefail
+IFS=$'\n\t'
 
 # Version
-BRANCHOPS_VERSION="2.1.0"
+WTR_VERSION="2.0.0"
 
 # Find the script directory (resolve symlinks; allow env override)
 resolve_script_dir() {
@@ -18,23 +19,28 @@ resolve_script_dir() {
   done
   cd -P "$(dirname "$src")/.." && pwd
 }
-: "${BRANCHOPS_DIR:=$(resolve_script_dir)}"
+: "${WTR_DIR:=$(resolve_script_dir)}"
 
 # Source library files
-. "$BRANCHOPS_DIR/lib/log.sh"
-. "$BRANCHOPS_DIR/lib/errors.sh"
-. "$BRANCHOPS_DIR/lib/ui.sh"
-. "$BRANCHOPS_DIR/lib/config.sh"
-. "$BRANCHOPS_DIR/lib/platform.sh"
-. "$BRANCHOPS_DIR/lib/core.sh"
-. "$BRANCHOPS_DIR/lib/copy.sh"
-. "$BRANCHOPS_DIR/lib/hooks.sh"
+. "$WTR_DIR/lib/log.sh"
+. "$WTR_DIR/lib/errors.sh"
+. "$WTR_DIR/lib/ui.sh"
+. "$WTR_DIR/lib/config.sh"
+. "$WTR_DIR/lib/platform.sh"
+. "$WTR_DIR/lib/core.sh"
+. "$WTR_DIR/lib/copy.sh"
+. "$WTR_DIR/lib/hooks.sh"
+
+# Load project-level .wtr/config if it exists (for project-aware commands)
+if [ -f ".wtr/config.sh" ]; then
+  . ".wtr/config.sh"
+fi
 
 # Generic adapter functions (used when no explicit adapter file exists)
 # These will be overridden if an adapter file is sourced
-# Globals set by load_editor_adapter: BRANCHOPS_EDITOR_CMD, BRANCHOPS_EDITOR_CMD_NAME
+# Globals set by load_editor_adapter: WTR_EDITOR_CMD, WTR_EDITOR_CMD_NAME
 editor_can_open() {
-  command -v "$BRANCHOPS_EDITOR_CMD_NAME" >/dev/null 2>&1
+  command -v "$WTR_EDITOR_CMD_NAME" >/dev/null 2>&1
 }
 
 editor_open() {
@@ -47,99 +53,27 @@ editor_open() {
     target="$workspace"
   fi
 
-  # $BRANCHOPS_EDITOR_CMD may contain arguments (e.g., "code --wait")
+  # $WTR_EDITOR_CMD may contain arguments (e.g., "code --wait")
   # Using eval here is necessary to handle multi-word commands properly
-  eval "$BRANCHOPS_EDITOR_CMD \"\$target\""
+  eval "$WTR_EDITOR_CMD \"\$target\""
 }
 
-# Globals set by load_ai_adapter: BRANCHOPS_AI_CMD, BRANCHOPS_AI_CMD_NAME
+# Globals set by load_ai_adapter: WTR_AI_CMD, WTR_AI_CMD_NAME
 ai_can_start() {
-  command -v "$BRANCHOPS_AI_CMD_NAME" >/dev/null 2>&1
+  command -v "$WTR_AI_CMD_NAME" >/dev/null 2>&1
 }
 
 ai_start() {
   local path="$1"
   shift
-  # $BRANCHOPS_AI_CMD may contain arguments (e.g., "bunx @github/copilot@latest")
+  # $WTR_AI_CMD may contain arguments (e.g., "bunx @github/copilot@latest")
   # Using eval here is necessary to handle multi-word commands properly
-  (cd "$path" && eval "$BRANCHOPS_AI_CMD \"\$@\"")
+  (cd "$path" && eval "$WTR_AI_CMD \"\$@\"")
 }
 
 # Main dispatcher
 main() {
-  local cmd="${1:-help}"
-  shift 2>/dev/null || true
-
-  case "$cmd" in
-    create|new)
-      cmd_create "$@"
-      ;;
-    rm)
-      cmd_remove "$@"
-      ;;
-    go)
-      cmd_go "$@"
-      ;;
-    run)
-      cmd_run "$@"
-      ;;
-    editor)
-      cmd_editor "$@"
-      ;;
-    ai)
-      cmd_ai "$@"
-      ;;
-    copy)
-      cmd_copy "$@"
-      ;;
-    ls|list)
-      cmd_list "$@"
-      ;;
-    dashboard|status)
-      cmd_dashboard "$@"
-      ;;
-    ui)
-      cmd_ui "$@"
-      ;;
-    hooks)
-      cmd_hooks "$@"
-      ;;
-    sync)
-      cmd_sync "$@"
-      ;;
-    exec)
-      cmd_exec "$@"
-      ;;
-    backup)
-      cmd_backup "$@"
-      ;;
-    restore)
-      cmd_restore "$@"
-      ;;
-    clean)
-      cmd_clean "$@"
-      ;;
-    doctor)
-      cmd_doctor "$@"
-      ;;
-    adapter|adapters)
-      cmd_adapter "$@"
-      ;;
-    config)
-      cmd_config "$@"
-      ;;
-    version|--version|-v)
-      echo "git branchops version $BRANCHOPS_VERSION"
-      ;;
-    help|--help|-h)
-      cmd_help
-      ;;
-    *)
-      log_error "Unknown command: $cmd"
-      echo "Use 'git branchops help' for available commands"
-      exit 1
-      ;;
-  esac
+  dispatch_command "$@"
 }
 
 # Create command
@@ -222,9 +156,9 @@ cmd_create() {
   if [ "$force" -eq 1 ] && [ -z "$custom_name" ]; then
     log_error "--force requires --name to distinguish worktrees"
     if [ -n "$branch_name" ]; then
-      echo "Example: git branchops new $branch_name --force --name backend" >&2
+      echo "Example: git wtr new $branch_name --force --name backend" >&2
     else
-      echo "Example: git branchops new feature-auth --force --name backend" >&2
+      echo "Example: git wtr new feature-auth --force --name backend" >&2
     fi
     exit 1
   fi
@@ -232,13 +166,13 @@ cmd_create() {
   # Load preset if specified
   if [ -n "$preset" ]; then
     log_info "Applying preset: $preset"
-    [ -z "$from_ref" ] && from_ref=$(cfg_get "branchops.preset.$preset.from")
+    [ -z "$from_ref" ] && from_ref=$(cfg_get "wtr.preset.$preset.from")
     
     local p_from_current p_skip_copy p_skip_fetch p_track
-    p_from_current=$(cfg_get "branchops.preset.$preset.fromCurrent")
-    p_skip_copy=$(cfg_get "branchops.preset.$preset.skipCopy")
-    p_skip_fetch=$(cfg_get "branchops.preset.$preset.skipFetch")
-    p_track=$(cfg_get "branchops.preset.$preset.track")
+    p_from_current=$(cfg_get "wtr.preset.$preset.fromCurrent")
+    p_skip_copy=$(cfg_get "wtr.preset.$preset.skipCopy")
+    p_skip_fetch=$(cfg_get "wtr.preset.$preset.skipFetch")
+    p_track=$(cfg_get "wtr.preset.$preset.track")
     
     [ -n "$p_from_current" ] && [ "$from_current" -eq 0 ] && from_current="$p_from_current"
     [ -n "$p_skip_copy" ] && [ "$skip_copy" -eq 0 ] && skip_copy="$p_skip_copy"
@@ -252,7 +186,7 @@ cmd_create() {
 
   local base_dir prefix
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   # Get branch name if not provided
   if [ -z "$branch_name" ]; then
@@ -319,9 +253,9 @@ cmd_create() {
   # Copy files based on patterns
   if [ "$skip_copy" -eq 0 ]; then
     local includes excludes file_includes
-    # Pass .branchopsconfig keys as second argument for file-based config
-    includes=$(cfg_get_all branchops.copy.include copy.include)
-    excludes=$(cfg_get_all branchops.copy.exclude copy.exclude)
+    # Pass .wtrconfig keys as second argument for file-based config
+    includes=$(cfg_get_all wtr.copy.include copy.include)
+    excludes=$(cfg_get_all wtr.copy.exclude copy.exclude)
 
     # Read .worktreeinclude file if exists
     file_includes=$(parse_pattern_file "$repo_root/.worktreeinclude")
@@ -342,9 +276,9 @@ cmd_create() {
 
     # Copy directories (typically git-ignored dirs like node_modules, .venv)
     local dir_includes dir_excludes
-    # Pass .branchopsconfig keys as second argument for file-based config
-    dir_includes=$(cfg_get_all branchops.copy.includeDirs copy.includeDirs)
-    dir_excludes=$(cfg_get_all branchops.copy.excludeDirs copy.excludeDirs)
+    # Pass .wtrconfig keys as second argument for file-based config
+    dir_includes=$(cfg_get_all wtr.copy.includeDirs copy.includeDirs)
+    dir_excludes=$(cfg_get_all wtr.copy.excludeDirs copy.excludeDirs)
 
     if [ -n "$dir_includes" ]; then
       log_step "Copying directories..."
@@ -364,7 +298,7 @@ cmd_create() {
   # Auto-launch editor if requested
   if [ "$open_editor" -eq 1 ]; then
     local editor
-    editor=$(cfg_default branchops.editor.default BRANCHOPS_EDITOR_DEFAULT "none" defaults.editor)
+    editor=$(cfg_default wtr.editor.default WTR_EDITOR_DEFAULT "none" defaults.editor)
     if [ "$editor" != "none" ]; then
       load_editor_adapter "$editor"
       local workspace_file
@@ -380,9 +314,9 @@ cmd_create() {
   # Auto-launch AI tool if requested
   if [ "$start_ai" -eq 1 ]; then
     local ai_tool
-    ai_tool=$(cfg_default branchops.ai.default BRANCHOPS_AI_DEFAULT "none" defaults.ai)
+    ai_tool=$(cfg_default wtr.ai.default WTR_AI_DEFAULT "none" defaults.ai)
     if [ "$ai_tool" = "none" ]; then
-      log_warn "No AI tool configured. Set with: git branchops config set branchops.ai.default claude"
+      log_warn "No AI tool configured. Set with: git wtr config set wtr.ai.default claude"
     else
       load_ai_adapter "$ai_tool"
       log_step "Starting $ai_tool..."
@@ -394,9 +328,9 @@ cmd_create() {
   if [ "$open_editor" -eq 0 ] && [ "$start_ai" -eq 0 ]; then
     echo ""
     echo "Next steps:"
-    echo "  git branchops editor $branch_name  # Open in editor"
-    echo "  git branchops ai $branch_name      # Start AI tool"
-    echo "  cd \"\$(git branchops go $branch_name)\"  # Navigate to worktree"
+    echo "  git wtr editor $branch_name  # Open in editor"
+    echo "  git wtr ai $branch_name      # Start AI tool"
+    echo "  cd \"\$(git wtr go $branch_name)\"  # Navigate to worktree"
   fi
 }
 
@@ -442,7 +376,7 @@ cmd_remove() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   for identifier in $identifiers; do
     # Resolve target branch
@@ -502,7 +436,7 @@ cmd_remove() {
 # Go command (navigate to worktree - prints path for shell integration)
 cmd_go() {
   if [ $# -ne 1 ]; then
-    log_error "Usage: git branchops go <id|branch>"
+    log_error "Usage: git wtr go <id|branch>"
     exit 1
   fi
 
@@ -513,7 +447,7 @@ cmd_go() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   # Resolve target branch
   local target is_main worktree_path branch
@@ -530,7 +464,7 @@ cmd_go() {
   fi
   echo "Branch: $branch" >&2
 
-  # Print path to stdout for shell integration: cd "$(branchops go my-feature)"
+  # Print path to stdout for shell integration: cd "$(wtr go my-feature)"
   printf "%s\n" "$worktree_path"
 }
 
@@ -564,7 +498,7 @@ cmd_run() {
   fi
 
   if [ ${#run_args[@]} -eq 0 ]; then
-    log_error "Usage: git branchops run <id|branch> <command...>"
+    log_error "Usage: git wtr run <id|branch> <command...>"
     log_error "No command specified"
     exit 1
   fi
@@ -572,7 +506,7 @@ cmd_run() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   # Resolve target branch
   local target is_main worktree_path branch
@@ -643,7 +577,7 @@ cmd_copy() {
 
   # Validation
   if [ "$all_mode" -eq 0 ] && [ -z "$targets" ]; then
-    log_error "Usage: git branchops copy <target>... [-n] [-a] [--from <source>] [-- <pattern>...]"
+    log_error "Usage: git wtr copy <target>... [-n] [-a] [--from <source>] [-- <pattern>...]"
     exit 1
   fi
 
@@ -651,7 +585,7 @@ cmd_copy() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   # Resolve source path
   local src_target src_path
@@ -660,7 +594,7 @@ cmd_copy() {
 
   # Get patterns (flag > config)
   if [ -z "$patterns" ]; then
-    patterns=$(cfg_get_all branchops.copy.include copy.include)
+    patterns=$(cfg_get_all wtr.copy.include copy.include)
     # Also check .worktreeinclude
     if [ -f "$repo_root/.worktreeinclude" ]; then
       local file_patterns
@@ -676,12 +610,12 @@ cmd_copy() {
   fi
 
   if [ -z "$patterns" ]; then
-    log_error "No patterns specified. Use '-- <pattern>...' or configure branchops.copy.include"
+    log_error "No patterns specified. Use '-- <pattern>...' or configure wtr.copy.include"
     exit 1
   fi
 
   local excludes
-  excludes=$(cfg_get_all branchops.copy.exclude copy.exclude)
+  excludes=$(cfg_get_all wtr.copy.exclude copy.exclude)
 
   # Build target list for --all mode
   if [ "$all_mode" -eq 1 ]; then
@@ -747,15 +681,15 @@ cmd_editor() {
     identifier=$(prompt_select_worktree "Select worktree to open in editor:") || exit 0
   fi
 
-  # Get editor from flag or config (with .branchopsconfig support)
+  # Get editor from flag or config (with .wtrconfig support)
   if [ -z "$editor" ]; then
-    editor=$(cfg_default branchops.editor.default BRANCHOPS_EDITOR_DEFAULT "none" defaults.editor)
+    editor=$(cfg_default wtr.editor.default WTR_EDITOR_DEFAULT "none" defaults.editor)
   fi
 
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   # Resolve target branch
   local target worktree_path branch
@@ -812,15 +746,15 @@ cmd_ai() {
     identifier=$(prompt_select_worktree "Select worktree to start AI tool in:") || exit 0
   fi
 
-  # Get AI tool from flag or config (with .branchopsconfig support)
+  # Get AI tool from flag or config (with .wtrconfig support)
   if [ -z "$ai_tool" ]; then
-    ai_tool=$(cfg_default branchops.ai.default BRANCHOPS_AI_DEFAULT "none" defaults.ai)
+    ai_tool=$(cfg_default wtr.ai.default WTR_AI_DEFAULT "none" defaults.ai)
   fi
 
   # Check if AI tool is configured
   if [ "$ai_tool" = "none" ]; then
     log_error "No AI tool configured"
-    log_info "Set default: git branchops config set branchops.ai.default claude"
+    log_info "Set default: git wtr config set wtr.ai.default claude"
     exit 1
   fi
 
@@ -830,7 +764,7 @@ cmd_ai() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   # Resolve target branch
   local target worktree_path branch
@@ -850,7 +784,7 @@ cmd_dashboard() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   log_step "Worktree Dashboard"
   echo ""
@@ -943,7 +877,7 @@ cmd_sync() {
     local repo_root base_dir prefix
     repo_root=$(discover_repo_root) || exit 1
     base_dir=$(resolve_base_dir "$repo_root")
-    prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+    prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
     targets=("1" $(list_worktree_branches "$base_dir" "$prefix"))
   elif [ ${#targets[@]} -eq 0 ]; then
     local selected
@@ -954,7 +888,7 @@ cmd_sync() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   for id in "${targets[@]}"; do
     local target path branch
@@ -1015,7 +949,7 @@ cmd_exec() {
     local repo_root base_dir prefix
     repo_root=$(discover_repo_root) || exit 1
     base_dir=$(resolve_base_dir "$repo_root")
-    prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+    prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
     targets=("1" $(list_worktree_branches "$base_dir" "$prefix"))
   elif [ ${#targets[@]} -eq 0 ]; then
     local selected
@@ -1026,7 +960,7 @@ cmd_exec() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   local pids=()
   for id in "${targets[@]}"; do
@@ -1068,9 +1002,9 @@ cmd_hooks() {
       local repo_root base_dir prefix
       repo_root=$(discover_repo_root) || exit 1
       base_dir=$(resolve_base_dir "$repo_root")
-      prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+      prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
       
-      local hook_src="$repo_root/.branchops/git-hooks"
+      local hook_src="$repo_root/.wtr/git-hooks"
       if [ ! -d "$hook_src" ]; then
         log_error "No Git hooks found in $hook_src"
         exit 1
@@ -1091,7 +1025,7 @@ cmd_hooks() {
       done
       ;;
     *)
-      echo "Usage: git branchops hooks sync"
+      echo "Usage: git wtr hooks sync"
       ;;
   esac
 }
@@ -1106,7 +1040,7 @@ cmd_backup() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   local target path branch
   target=$(resolve_target "$identifier" "$repo_root" "$base_dir" "$prefix") || exit 1
@@ -1115,7 +1049,7 @@ cmd_backup() {
 
   local timestamp
   timestamp=$(date +%Y%m%d_%H%M%S)
-  local backup_dir="$repo_root/.branchops/backups/$(sanitize_branch_name "$branch")/$timestamp"
+  local backup_dir="$repo_root/.wtr/backups/$(sanitize_branch_name "$branch")/$timestamp"
   mkdir -p "$backup_dir"
 
   log_step "Backing up $branch to $backup_dir..."
@@ -1137,7 +1071,7 @@ cmd_backup() {
 cmd_restore() {
   local backup_path="$1"
   if [ -z "$backup_path" ]; then
-    log_error "Usage: git branchops restore <backup_path>"
+    log_error "Usage: git wtr restore <backup_path>"
     exit 1
   fi
 
@@ -1191,7 +1125,7 @@ cmd_list() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) 2>/dev/null || return 0
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   # Machine-readable output (porcelain)
   if [ "$porcelain" -eq 1 ]; then
@@ -1243,7 +1177,7 @@ cmd_list() {
 
   echo ""
   echo ""
-  echo "Tip: Use 'git branchops list --porcelain' for machine-readable output"
+  echo "Tip: Use 'git wtr list --porcelain' for machine-readable output"
 }
 
 # Clean command (remove prunable worktrees)
@@ -1287,7 +1221,7 @@ cmd_clean() {
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
   if [ ! -d "$base_dir" ]; then
     log_info "No worktrees directory to clean"
@@ -1421,7 +1355,7 @@ EOF
 
 # Doctor command (health check)
 cmd_doctor() {
-  echo "Running git branchops health check..."
+  echo "Running git wtr health check..."
   echo ""
 
   local issues=0
@@ -1444,7 +1378,7 @@ cmd_doctor() {
     # Check worktree base dir
     local base_dir prefix
     base_dir=$(resolve_base_dir "$repo_root")
-    prefix=$(cfg_default branchops.worktrees.prefix BRANCHOPS_WORKTREES_PREFIX "")
+    prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
     if [ -d "$base_dir" ]; then
       local count
@@ -1458,12 +1392,12 @@ cmd_doctor() {
     issues=$((issues + 1))
   fi
 
-  # Check configured editor (with .branchopsconfig support)
+  # Check configured editor (with .wtrconfig support)
   local editor
-  editor=$(cfg_default branchops.editor.default BRANCHOPS_EDITOR_DEFAULT "none" defaults.editor)
+  editor=$(cfg_default wtr.editor.default WTR_EDITOR_DEFAULT "none" defaults.editor)
   if [ "$editor" != "none" ]; then
     # Check if adapter exists
-    local editor_adapter="$BRANCHOPS_DIR/adapters/editor/${editor}.sh"
+    local editor_adapter="$WTR_DIR/adapters/editor/${editor}.sh"
     if [ -f "$editor_adapter" ]; then
       . "$editor_adapter"
       if editor_can_open 2>/dev/null; then
@@ -1478,12 +1412,12 @@ cmd_doctor() {
     echo "[i] Editor: none configured"
   fi
 
-  # Check configured AI tool (with .branchopsconfig support)
+  # Check configured AI tool (with .wtrconfig support)
   local ai_tool
-  ai_tool=$(cfg_default branchops.ai.default BRANCHOPS_AI_DEFAULT "none" defaults.ai)
+  ai_tool=$(cfg_default wtr.ai.default WTR_AI_DEFAULT "none" defaults.ai)
   if [ "$ai_tool" != "none" ]; then
     # Check if adapter exists
-    local adapter_file="$BRANCHOPS_DIR/adapters/ai/${ai_tool}.sh"
+    local adapter_file="$WTR_DIR/adapters/ai/${ai_tool}.sh"
     if [ -f "$adapter_file" ]; then
       . "$adapter_file"
       if ai_can_start 2>/dev/null; then
@@ -1524,7 +1458,7 @@ cmd_adapter() {
   printf "%-15s %-15s %s\n" "NAME" "STATUS" "NOTES"
   printf "%-15s %-15s %s\n" "---------------" "---------------" "-----"
 
-  for adapter_file in "$BRANCHOPS_DIR"/adapters/editor/*.sh; do
+  for adapter_file in "$WTR_DIR"/adapters/editor/*.sh; do
     if [ -f "$adapter_file" ]; then
       local adapter_name
       adapter_name=$(basename "$adapter_file" .sh)
@@ -1545,7 +1479,7 @@ cmd_adapter() {
   printf "%-15s %-15s %s\n" "NAME" "STATUS" "NOTES"
   printf "%-15s %-15s %s\n" "---------------" "---------------" "-----"
 
-  for adapter_file in "$BRANCHOPS_DIR"/adapters/ai/*.sh; do
+  for adapter_file in "$WTR_DIR"/adapters/ai/*.sh; do
     if [ -f "$adapter_file" ]; then
       local adapter_name
       adapter_name=$(basename "$adapter_file" .sh)
@@ -1562,8 +1496,8 @@ cmd_adapter() {
   echo ""
   echo ""
   echo "Tip: Set defaults with:"
-  echo "   git branchops config set branchops.editor.default <name>"
-  echo "   git branchops config set branchops.ai.default <name>"
+  echo "   git wtr config set wtr.editor.default <name>"
+  echo "   git wtr config set wtr.ai.default <name>"
 }
 
 # Config command
@@ -1637,7 +1571,7 @@ cmd_config() {
   case "$action" in
     get)
       if [ -z "$key" ]; then
-        log_error "Usage: git branchops config get <key> [--local|--global|--system]"
+        log_error "Usage: git wtr config get <key> [--local|--global|--system]"
         exit 1
       fi
       # Warn on unexpected extra arguments
@@ -1648,7 +1582,7 @@ cmd_config() {
       ;;
     set)
       if [ -z "$key" ] || [ -z "$value" ]; then
-        log_error "Usage: git branchops config set <key> <value> [--local|--global]"
+        log_error "Usage: git wtr config set <key> <value> [--local|--global]"
         exit 1
       fi
       # Warn on unexpected extra arguments
@@ -1660,7 +1594,7 @@ cmd_config() {
       ;;
     add)
       if [ -z "$key" ] || [ -z "$value" ]; then
-        log_error "Usage: git branchops config add <key> <value> [--local|--global]"
+        log_error "Usage: git wtr config add <key> <value> [--local|--global]"
         exit 1
       fi
       # Warn on unexpected extra arguments
@@ -1672,7 +1606,7 @@ cmd_config() {
       ;;
     unset)
       if [ -z "$key" ]; then
-        log_error "Usage: git branchops config unset <key> [--local|--global]"
+        log_error "Usage: git wtr config unset <key> [--local|--global]"
         exit 1
       fi
       # Warn on unexpected extra arguments (including value which unset doesn't use)
@@ -1687,13 +1621,13 @@ cmd_config() {
       if [ -n "$key" ] || [ -n "$extra_args" ]; then
         log_warn "list action doesn't accept additional arguments (ignoring: ${key}${key:+ }${extra_args})"
       fi
-      # Use cfg_list for proper formatting and .branchopsconfig support
+      # Use cfg_list for proper formatting and .wtrconfig support
       cfg_list "$scope"
       ;;
     *)
       log_error "Unknown config action: $action"
-      log_error "Usage: git branchops config [list] [--local|--global|--system]"
-      log_error "       git branchops config {get|set|add|unset} <key> [value] [--local|--global]"
+      log_error "Usage: git wtr config [list] [--local|--global|--system]"
+      log_error "       git wtr config {get|set|add|unset} <key> [value] [--local|--global]"
       exit 1
       ;;
   esac
@@ -1704,9 +1638,9 @@ cmd_config() {
 resolve_workspace_file() {
   local worktree_path="$1"
 
-  # Check config first (branchops.editor.workspace or editor.workspace in .branchopsconfig)
+  # Check config first (wtr.editor.workspace or editor.workspace in .wtrconfig)
   local configured
-  configured=$(cfg_default branchops.editor.workspace "" "" editor.workspace)
+  configured=$(cfg_default wtr.editor.workspace "" "" editor.workspace)
 
   # Opt-out: "none" disables workspace lookup entirely
   if [ "$configured" = "none" ]; then
@@ -1733,12 +1667,12 @@ resolve_workspace_file() {
 # Load editor adapter
 load_editor_adapter() {
   local editor="$1"
-  local adapter_file="$BRANCHOPS_DIR/adapters/editor/${editor}.sh"
+  local adapter_file="$WTR_DIR/adapters/editor/${editor}.sh"
 
   # Set defaults first (can be overridden by adapter)
   local cmd_name="${editor%% *}"
-  BRANCHOPS_EDITOR_CMD="$editor"
-  BRANCHOPS_EDITOR_CMD_NAME="$cmd_name"
+  WTR_EDITOR_CMD="$editor"
+  WTR_EDITOR_CMD_NAME="$cmd_name"
 
   # Try loading explicit adapter first (allows special handling)
   if [ -f "$adapter_file" ]; then
@@ -1768,12 +1702,12 @@ load_editor_adapter() {
 # Load AI adapter
 load_ai_adapter() {
   local ai_tool="$1"
-  local adapter_file="$BRANCHOPS_DIR/adapters/ai/${ai_tool}.sh"
+  local adapter_file="$WTR_DIR/adapters/ai/${ai_tool}.sh"
 
   # Set defaults first
   local cmd_name="${ai_tool%% *}"
-  BRANCHOPS_AI_CMD="$ai_tool"
-  BRANCHOPS_AI_CMD_NAME="$cmd_name"
+  WTR_AI_CMD="$ai_tool"
+  WTR_AI_CMD_NAME="$cmd_name"
 
   # Try loading explicit adapter first (allows special handling)
   if [ -f "$adapter_file" ]; then
@@ -1806,7 +1740,7 @@ load_ai_adapter() {
 # Help command
 cmd_help() {
   cat <<'EOF'
-git branchops - Git worktree runner
+git wtr - Git Worktree Runner
 
 PHILOSOPHY: Configuration over flags. Set defaults once, then use simple commands.
 
@@ -1814,20 +1748,20 @@ PHILOSOPHY: Configuration over flags. Set defaults once, then use simple command
 
 QUICK START:
   cd ~/your-repo                                   # Navigate to git repo first
-  git branchops config set branchops.editor.default cursor     # One-time setup
-  git branchops config set branchops.ai.default claude         # One-time setup
-  git branchops new my-feature                           # Creates worktree in folder "my-feature"
-  git branchops editor my-feature                        # Opens in cursor
-  git branchops ai my-feature                            # Starts claude
-  git branchops rm my-feature                            # Remove when done
+  git wtr config set wtr.editor.default cursor     # One-time setup
+  git wtr config set wtr.ai.default claude         # One-time setup
+  git wtr new my-feature                           # Creates worktree in folder "my-feature"
+  git wtr editor my-feature                        # Opens in cursor
+  git wtr ai my-feature                            # Starts claude
+  git wtr rm my-feature                            # Remove when done
 
 ────────────────────────────────────────────────────────────────────────────────
 
 KEY CONCEPTS:
   • Worktree folders are named after the branch name
-  • Main repo is accessible via special ID '1' (e.g., git branchops go 1, git branchops editor 1)
+  • Main repo is accessible via special ID '1' (e.g., git wtr go 1, git wtr editor 1)
   • Commands accept branch names to identify worktrees
-    Example: git branchops editor my-feature, git branchops go feature/user-auth
+    Example: git wtr editor my-feature, git wtr go feature/user-auth
 
 ────────────────────────────────────────────────────────────────────────────────
 
@@ -1847,15 +1781,15 @@ CORE COMMANDS (daily workflow):
          -a, --ai: start AI tool after creation
 
   editor <branch> [--editor <name>]
-         Open worktree in editor (uses branchops.editor.default or --editor)
+         Open worktree in editor (uses wtr.editor.default or --editor)
          Special: use '1' to open repo root
 
   ai <branch> [--ai <name>] [-- args...]
-         Start AI coding tool in worktree (uses branchops.ai.default or --ai)
+         Start AI coding tool in worktree (uses wtr.ai.default or --ai)
          Special: use '1' to open repo root
 
   go <branch>
-         Navigate to worktree (prints path for: cd "$(git branchops go my-feature)")
+         Navigate to worktree (prints path for: cd "$(git wtr go my-feature)")
          Special: use '1' for repo root
 
   run <branch> <command...>
@@ -1863,9 +1797,9 @@ CORE COMMANDS (daily workflow):
          Special: use '1' to run in repo root
 
          Examples:
-           git branchops run feature npm test
-           git branchops run feature-auth git status
-           git branchops run 1 npm run build
+           git wtr run feature npm test
+           git wtr run feature-auth git status
+           git wtr run 1 npm run build
 
   list [--porcelain]
          List all worktrees
@@ -1882,14 +1816,14 @@ CORE COMMANDS (daily workflow):
          -n, --dry-run: preview without copying
          -a, --all: copy to all worktrees
          --from <source>: copy from different worktree (default: main repo)
-         Patterns after -- override branchops.copy.include config
+         Patterns after -- override wtr.copy.include config
 
          Examples:
-           git branchops copy my-feature                       # Uses configured patterns
-           git branchops copy my-feature -- ".env*"            # Explicit pattern
-           git branchops copy my-feature -- ".env*" "*.json"   # Multiple patterns
-           git branchops copy -a -- ".env*"                    # Update all worktrees
-           git branchops copy my-feature -n -- "**/.env*"      # Dry-run preview
+           git wtr copy my-feature                       # Uses configured patterns
+           git wtr copy my-feature -- ".env*"            # Explicit pattern
+           git wtr copy my-feature -- ".env*" "*.json"   # Multiple patterns
+           git wtr copy -a -- ".env*"                    # Update all worktrees
+           git wtr copy my-feature -n -- "**/.env*"      # Dry-run preview
 
 ────────────────────────────────────────────────────────────────────────────────
 
@@ -1899,7 +1833,7 @@ SETUP & MAINTENANCE:
   config get <key> [--local|--global|--system]
   config {set|add|unset} <key> [value] [--local|--global]
          Manage configuration
-         - list: show all branchops.* config values (default when no args)
+         - list: show all wtr.* config values (default when no args)
          - get: read a config value (merged from all sources by default)
          - set: set a single value (replaces existing)
          - add: add a value (for multi-valued configs like hooks, copy patterns)
@@ -1929,73 +1863,73 @@ WORKFLOW EXAMPLES:
 
   # One-time repo setup
   cd ~/GitHub/my-project
-  git branchops config set branchops.editor.default cursor
-  git branchops config set branchops.ai.default claude
+  git wtr config set wtr.editor.default cursor
+  git wtr config set wtr.ai.default claude
 
   # Daily workflow
-  git branchops new feature/user-auth               # Create worktree (folder: feature-user-auth)
-  git branchops editor feature/user-auth            # Open in editor
-  git branchops ai feature/user-auth                # Start AI tool
+  git wtr new feature/user-auth               # Create worktree (folder: feature-user-auth)
+  git wtr editor feature/user-auth            # Open in editor
+  git wtr ai feature/user-auth                # Start AI tool
 
   # Run commands in worktree
-  git branchops run feature/user-auth npm test      # Run tests
-  git branchops run feature/user-auth npm run dev   # Start dev server
+  git wtr run feature/user-auth npm test      # Run tests
+  git wtr run feature/user-auth npm run dev   # Start dev server
 
   # Navigate to worktree directory
-  cd "$(git branchops go feature/user-auth)"
+  cd "$(git wtr go feature/user-auth)"
 
   # Override defaults with flags
-  git branchops editor feature/user-auth --editor vscode
-  git branchops ai feature/user-auth --ai aider
+  git wtr editor feature/user-auth --editor vscode
+  git wtr ai feature/user-auth --ai aider
 
   # Chain commands together
-  git branchops new hotfix && git branchops editor hotfix && git branchops ai hotfix
+  git wtr new hotfix && git wtr editor hotfix && git wtr ai hotfix
 
   # Create variant worktrees from current branch (for parallel work)
   git checkout feature/user-auth
-  git branchops new variant-1 --from-current        # Creates variant-1 from feature/user-auth
-  git branchops new variant-2 --from-current        # Creates variant-2 from feature/user-auth
+  git wtr new variant-1 --from-current        # Creates variant-1 from feature/user-auth
+  git wtr new variant-2 --from-current        # Creates variant-2 from feature/user-auth
 
   # When finished
-  git branchops rm feature/user-auth --delete-branch
+  git wtr rm feature/user-auth --delete-branch
 
   # Check setup and available tools
-  git branchops doctor
-  git branchops adapter
+  git wtr doctor
+  git wtr adapter
 
 ────────────────────────────────────────────────────────────────────────────────
 
 CONFIGURATION OPTIONS:
 
-  branchops.worktrees.dir        Worktrees base directory
-  branchops.worktrees.prefix     Worktree folder prefix (default: "")
-  branchops.defaultBranch        Default branch (default: auto)
-  branchops.editor.default       Default editor
+  wtr.worktrees.dir        Worktrees base directory
+  wtr.worktrees.prefix     Worktree folder prefix (default: "")
+  wtr.defaultBranch        Default branch (default: auto)
+  wtr.editor.default       Default editor
                            Options: cursor, vscode, vscode_remote, zed,
                            idea, pycharm, webstorm, nvim, vim, emacs,
                            sublime, atom, nano, none
-  branchops.editor.workspace     Workspace file for VS Code/Cursor
+  wtr.editor.workspace     Workspace file for VS Code/Cursor
                            (relative path, auto-detects, or "none")
-  branchops.ai.default           Default AI tool
+  wtr.ai.default           Default AI tool
                            Options: aider, claude, codex, continue,
                            copilot, cursor, gemini, opencode, none
-  branchops.copy.include         Files to copy (multi-valued)
-  branchops.copy.exclude         Files to exclude (multi-valued)
-  branchops.copy.includeDirs     Directories to copy (multi-valued)
+  wtr.copy.include         Files to copy (multi-valued)
+  wtr.copy.exclude         Files to exclude (multi-valued)
+  wtr.copy.includeDirs     Directories to copy (multi-valued)
                            Example: node_modules, .venv, vendor
                            WARNING: May include sensitive files!
-                           Use branchops.copy.excludeDirs to exclude them.
-  branchops.copy.excludeDirs     Directories to exclude (multi-valued)
+                           Use wtr.copy.excludeDirs to exclude them.
+  wtr.copy.excludeDirs     Directories to exclude (multi-valued)
                            Supports glob patterns (e.g., "node_modules/.cache", "*/.npm")
-  branchops.hook.postCreate      Post-create hooks (multi-valued)
-  branchops.hook.preRemove       Pre-remove hooks (multi-valued, abort on failure)
-  branchops.hook.postRemove      Post-remove hooks (multi-valued)
+  wtr.hook.postCreate      Post-create hooks (multi-valued)
+  wtr.hook.preRemove       Pre-remove hooks (multi-valued, abort on failure)
+  wtr.hook.postRemove      Post-remove hooks (multi-valued)
 
 ────────────────────────────────────────────────────────────────────────────────
 
-MORE INFO: https://github.com/neopilot-ai/np-branchops
+MORE INFO: https://github.com/neopilot-ai/wtr
 EOF
 }
 
 # Run main
-main "$@"
+dispatch_command "$@"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pre-remove.sh - Example pre-removal hook for branchops
+# pre-remove.sh - Example pre-removal hook for wtr
 # This script runs inside the worktree that is ABOUT to be removed.
 
 set -e
@@ -20,7 +20,7 @@ if [ -n "$(git ls-files --others --exclude-standard)" ]; then
 fi
 
 # 3. Prompt for confirmation if NOT running in clean/automated mode
-if [ "${BRANCHOPS_NON_INTERACTIVE:-}" != "1" ]; then
+if [ "${WTR_NON_INTERACTIVE:-}" != "1" ]; then
     printf "Are you sure you want to delete this worktree? [y/N] "
     read -r response
     if [[ ! "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then

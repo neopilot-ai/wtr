@@ -15,8 +15,8 @@ jobs:
     
     - name: Set up Git
       run: |
-        git config --global user.email "bot@branchops.dev"
-        git config --global user.name "BranchOps Bot"
+        git config --global user.email "bot@wtr.dev"
+        git config --global user.name "wtr Bot"
         git config --global init.defaultBranch main
     
     - name: Install BATS

@@ -1,18 +1,18 @@
-# branchops Presets - Git Configuration Snippets
+# wtr Presets - Git Configuration Snippets
 # Add these to your ~/.gitconfig or .git/config
 
-# [branchops "preset.feature"]
+# [wtr "preset.feature"]
 #     from = main
 #     track = true
 #     # postCreate = "npm install"
 
-# [branchops "preset.hotfix"]
+# [wtr "preset.hotfix"]
 #     from = master
 #     track = true
 
-# [branchops "preset.experimental"]
+# [wtr "preset.experimental"]
 #     fromCurrent = true
 #     skipCopy = true
 
 # Usage:
-# git branchops new my-feature --preset feature
+# git wtr new my-feature --preset feature
