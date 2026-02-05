@@ -1,32 +1,8 @@
 #!/bin/bash
-# add.sh - Create and add a new worktree
+# lib/commands/add.sh - Create and add a new worktree
+# This function is defined in bin/wtr and called through dispatch
+# This file is here for documentation purposes
 
-cmd_add() {
-  case "${1:-}" in
-    -h|--help)
-      cat <<'EOF'
-Usage: wtr add <branch> [options]
+# Note: cmd_add is actually aliased in dispatch_command to call cmd_create
+# The main implementation is in bin/wtr with cmd_create function
 
-Create and add a new Git worktree for the given branch.
-
-Arguments:
-  branch              Branch name or ref to create worktree from
-
-Options:
-  --from <branch>     Base branch (default: main/master)
-  --track             Track upstream branch
-  --no-fetch          Skip git fetch before creating
-  -h, --help          Show this help message
-
-Examples:
-  wtr add feature/new-ui
-  wtr add hotfix/urgent --from main --track
-EOF
-      return 0
-      ;;
-  esac
-
-  # Placeholder for actual command implementation
-  # This will be filled from existing cmd_create logic
-  log_info "add command: $*"
-}

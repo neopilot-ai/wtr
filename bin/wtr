@@ -6,7 +6,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # Version
-WTR_VERSION="2.0.0"
+WTR_VERSION="2.1.0"
 
 # Find the script directory (resolve symlinks; allow env override)
 resolve_script_dir() {
@@ -53,9 +53,16 @@ editor_open() {
     target="$workspace"
   fi
 
-  # $WTR_EDITOR_CMD may contain arguments (e.g., "code --wait")
-  # Using eval here is necessary to handle multi-word commands properly
-  eval "$WTR_EDITOR_CMD \"\$target\""
+  # Parse editor command safely without eval to prevent command injection
+  # Use array for proper argument handling
+  local -a editor_cmd
+  if [ -n "$WTR_EDITOR_CMD" ]; then
+    read -ra editor_cmd <<< "$WTR_EDITOR_CMD"
+    "${editor_cmd[@]}" "$target" || log_warn "Failed to open editor: $WTR_EDITOR_CMD"
+  else
+    log_error "No editor command configured"
+    return 1
+  fi
 }
 
 # Globals set by load_ai_adapter: WTR_AI_CMD, WTR_AI_CMD_NAME
@@ -66,9 +73,21 @@ ai_can_start() {
 ai_start() {
   local path="$1"
   shift
-  # $WTR_AI_CMD may contain arguments (e.g., "bunx @github/copilot@latest")
-  # Using eval here is necessary to handle multi-word commands properly
-  (cd "$path" && eval "$WTR_AI_CMD \"\$@\"")
+  
+  if [ ! -d "$path" ]; then
+    log_error "Invalid path: $path"
+    return 1
+  fi
+  
+  # Parse AI command safely without eval to prevent command injection
+  local -a ai_cmd
+  if [ -n "$WTR_AI_CMD" ]; then
+    read -ra ai_cmd <<< "$WTR_AI_CMD"
+    (cd "$path" && "${ai_cmd[@]}" "$@") || log_warn "Failed to start AI tool: $WTR_AI_CMD"
+  else
+    log_error "No AI tool command configured"
+    return 1
+  fi
 }
 
 # Main dispatcher
@@ -199,6 +218,18 @@ cmd_create() {
       log_error "Branch name required"
       exit 1
     fi
+  fi
+  
+  # Validate branch name (basic validation)
+  if [ ${#branch_name} -gt 250 ]; then
+    log_error "Branch name too long (max 250 chars): $branch_name"
+    exit 1
+  fi
+  
+  # Check for invalid patterns
+  if [[ "$branch_name" =~ ^- ]] || [[ "$branch_name" =~ [[:space:]] ]]; then
+    log_error "Invalid branch name (starts with dash or contains whitespace): $branch_name"
+    exit 1
   fi
 
   # Determine from_ref with precedence: --from > --from-current > default

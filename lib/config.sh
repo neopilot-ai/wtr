@@ -66,7 +66,16 @@ cfg_set() {
   local key="$1"
   local value="$2"
   local scope="${3:-local}"
-  git config "--$scope" "$key" "$value"
+  
+  if [ -z "$key" ] || [ -z "$value" ]; then
+    log_error "cfg_set: key and value are required"
+    return 1
+  fi
+  
+  if ! git config "--$scope" "$key" "$value"; then
+    log_error "Failed to set config: $key = $value (scope: $scope)"
+    return 1
+  fi
 }
 
 # Add to a multi-valued config
@@ -74,7 +83,16 @@ cfg_add() {
   local key="$1"
   local value="$2"
   local scope="${3:-local}"
-  git config "--$scope" --add "$key" "$value"
+  
+  if [ -z "$key" ] || [ -z "$value" ]; then
+    log_error "cfg_add: key and value are required"
+    return 1
+  fi
+  
+  if ! git config "--$scope" --add "$key" "$value"; then
+    log_error "Failed to add config: $key = $value (scope: $scope)"
+    return 1
+  fi
 }
 
 # Unset a config value

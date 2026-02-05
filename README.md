@@ -320,7 +320,7 @@ Precedence:
 **Claude Desktop**:
 ```bash
 # Install MCP server
-cd mcp-server && npm install && npm run build
+cd mcp && npm install && npm run build
 
 # Add to Claude config: ~/Library/Application\ Support/Claude/claude_desktop_config.json
 {
@@ -360,7 +360,7 @@ Claude:
 4. [Returns results] ✅ All tests pass!
 ```
 
-Learn more: [MCP Server Documentation](mcp-server/README.md) | [Integration Guide](mcp-server/INTEGRATION_GUIDE.md)
+Learn more: [MCP Server Documentation](docs/README.md) | [Integration Guide](docs/INTEGRATION_GUIDE.md)
 
 ---
 
@@ -372,10 +372,10 @@ Learn more: [MCP Server Documentation](mcp-server/README.md) | [Integration Guid
 * Repo bootstrapping scripts
 * Large mono-repo workflows
 
-➡️ Check out the [**Documentation Index**](docs/README.md) for deeper dives into:
+➡️ Check out the [**Documentation Index**](docs/INDEX.md) for deeper dives into:
 - [Configuration](docs/configuration.md)
 - [Editor & AI Adapters](docs/ADAPTERS.md)
-- [MCP Server Setup](mcp-server/INTEGRATION_GUIDE.md)
+- [Tool & Service Integration](docs/INTEGRATION_GUIDE.md)
 - [Troubleshooting](docs/troubleshooting.md)
 
 ---

@@ -1,0 +1,276 @@
+# wtr Configuration Example - Complete Guide
+# 
+# This file demonstrates all available wtr configuration options.
+# Copy this file to .wtrconfig and customize for your project.
+#
+# Configuration Priority:
+# 1. CLI flags (highest priority)
+# 2. Local repo .wtrconfig
+# 3. ~/.wtrconfig (user home)
+# 4. Global git config (lowest priority)
+
+# ============================================================================
+# DEFAULTS - Global defaults for all worktrees
+# ============================================================================
+[defaults]
+    # Default editor to use when opening worktrees
+    editor = cursor              # Options: vscode, cursor, vim, nvim, emacs, nano, atom, idea, pycharm, webstorm, zed
+    
+    # Default AI tool to use
+    ai = claude                  # Options: claude, copilot, opencode, aider, cursor, continue, windsurf, gemini
+    
+    # Base branch for worktrees (if not specified)
+    branch = main                # Falls back to current branch if not found
+    
+    # Directory where worktrees are created
+    directory = ./worktrees      # Relative path or absolute: /opt/worktrees, ~/work, etc.
+
+# ============================================================================
+# COPY - Files to automatically copy to new worktrees
+# ============================================================================
+[copy]
+    # Environment files
+    include = .env
+    include = .env.local
+    include = .env.production
+    
+    # Configuration files
+    include = .npmrc
+    include = .python-version
+    include = pyproject.toml
+    
+    # IDE/Editor configs
+    include = .editorconfig
+    include = .prettierignore
+    include = .eslintignore
+    
+    # Build artifacts that should persist
+    include = .next              # Next.js cache
+    include = out/               # Build output
+    
+    # Glob patterns supported
+    include = *.local.*
+    include = config/*.env
+    include = secrets/           # Entire directory
+
+# ============================================================================
+# HOOKS - Scripts to run at various lifecycle events
+# ============================================================================
+[hooks]
+    # Runs BEFORE worktree creation
+    # Use for pre-flight checks
+    # preCreate = ./scripts/pre-create.sh
+    
+    # Runs IN the new worktree AFTER creation
+    # Use for setup: install deps, build, etc.
+    postCreate = npm install
+    postCreate = npm run build      # Run sequentially
+    postCreate = ./scripts/setup.sh # Custom setup script
+    
+    # Runs BEFORE worktree removal
+    # Use for cleanup, backup, etc.
+    # preRemove = npm run clean
+    
+    # Runs AFTER worktree removal (in main repo)
+    # Use for final cleanup
+    # postRemove = git gc
+
+# ============================================================================
+# PRESETS - Named configurations for different workflows
+# ============================================================================
+
+# Preset: frontend development
+[preset.frontend]
+    branch = develop             # Use develop instead of main
+    copy = .env.frontend.local   # Additional files to copy
+    copy = .npmrc
+    editor = cursor              # Open in Cursor
+    ai = claude                  # Use Claude for AI help
+    # Hooks for frontend
+    hook.postCreate = npm install
+    hook.postCreate = npm run dev  # Start dev server
+
+# Preset: backend development  
+[preset.backend]
+    branch = develop
+    copy = .env.backend
+    copy = config.local.yaml
+    editor = vim                 # Use Vim
+    # Backend-specific hooks
+    hook.postCreate = python -m pip install -r requirements.txt
+    hook.postCreate = python manage.py migrate  # Django example
+
+# Preset: devops/infrastructure
+[preset.devops]
+    branch = main
+    copy = .terraform.tfvars
+    copy = credentials.json
+    editor = vscode
+    hook.postCreate = terraform init
+
+# Preset: hotfix - minimal setup for emergency fixes
+[preset.hotfix]
+    branch = production           # Branch from production
+    copy = .env.production
+    # Minimal setup for quick fixes
+    hook.postCreate = npm install --production
+
+# Usage: wtr new my-feature --preset frontend
+
+# ============================================================================
+# IGNORE - Patterns to exclude when copying files
+# ============================================================================
+[ignore]
+    # Don't copy these patterns
+    pattern = node_modules/
+    pattern = __pycache__/
+    pattern = .git/
+    pattern = dist/
+    pattern = build/
+    pattern = *.log
+
+# ============================================================================
+# REMOTE - Remote repository configuration
+# ============================================================================
+[remote]
+    # Remote name to track (default: origin)
+    name = origin
+    
+    # Default branch on remote
+    branch = main
+
+# ============================================================================
+# SECURITY - Sensitive file handling
+# ============================================================================
+[security]
+    # Files that should never be committed
+    # blocked = credentials.json
+    # blocked = .env.*.secret
+    
+    # Encrypt these files
+    # encrypt = .env.production
+    # encrypt = secrets.yaml
+
+# ============================================================================
+# BUILD - Build system integration
+# ============================================================================
+[build]
+    # Auto-build on worktree creation
+    # auto = true
+    
+    # Build command
+    command = npm run build
+    # or: python setup.py build
+    # or: cargo build
+
+# ============================================================================
+# TESTING - Test automation
+# ============================================================================
+[test]
+    # Run tests on creation
+    # autoRun = true
+    
+    # Test command
+    command = npm test
+    # or: pytest
+    # or: go test ./...
+    
+    # Test output format
+    # format = junit              # For CI integration
+
+# ============================================================================
+# CI/CD INTEGRATION
+# ============================================================================
+[ci]
+    # CI system specific config
+    provider = github            # github, gitlab, jenkins, circleci
+    
+    # Auto-create worktrees for PRs
+    autoPR = true
+    
+    # Auto cleanup after tests
+    autoCleanup = true
+
+# ============================================================================
+# ADVANCED - Advanced options
+# ============================================================================
+[advanced]
+    # Keep worktree after failure in postCreate
+    keepOnError = false
+    
+    # Maximum worktrees allowed
+    # maxWorktrees = 10
+    
+    # Auto compress old worktrees
+    autoCompress = true
+    
+    # Logging level: debug, info, warn, error
+    logLevel = info
+    
+    # Enable experimental features
+    experimental = false
+
+# ============================================================================
+# CUSTOM - User-defined variables
+# ============================================================================
+[custom]
+    # Define your own variables
+    # team = frontend-team
+    # project = my-project
+    # version = 2.0
+
+# ============================================================================
+# EXAMPLE WORKFLOW
+# ============================================================================
+#
+# 1. Basic usage with defaults:
+#    $ wtr new my-feature
+#
+# 2. Use preset for frontend:
+#    $ wtr new feature-login --preset frontend
+#
+# 3. Override preset:
+#    $ wtr new feature-login --preset frontend -b staging
+#
+# 4. Create without any config:
+#    $ wtr new feature-name --bare
+#
+# 5. View config:
+#    $ git config -l | grep wtr
+#
+# ============================================================================
+# MIGRATION FROM OLD CONFIG
+# ============================================================================
+#
+# If upgrading from older wtr format:
+#
+# OLD: git config wtr.editor.default vim
+# NEW: [defaults] editor = vim
+#
+# OLD: git config --add wtr.copy.include ".env"
+# NEW: [copy] include = .env
+#
+# OLD: git config wtr.hook.postCreate "npm install"
+# NEW: [hooks] postCreate = npm install
+
+# ============================================================================
+# TEAM BEST PRACTICES
+# ============================================================================
+#
+# ✓ DO:
+#   - Commit .wtrconfig to git for team consistency
+#   - Use presets for different workflows
+#   - Document custom hooks in DEVELOPMENT.md
+#   - Keep copy patterns specific
+#   - Version control .wtrconfig changes
+#
+# ✗ DON'T:
+#   - Use absolute paths (not portable)
+#   - Copy huge directories
+#   - Run untrusted hooks
+#   - Store secrets in .wtrconfig
+#   - Have complex interdependent hooks
+#
+# ============================================================================
+
+# Uncomment and customize the sections you need!

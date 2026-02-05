@@ -1,90 +1,160 @@
 #!/usr/bin/env bash
-# GitHub Copilot integration adapter
+# wtr GitHub Copilot AI Adapter
+# Integrates with GitHub Copilot for code generation and assistance
+#
+# GitHub Copilot requires GitHub CLI (gh) for authentication
+# More info: https://github.com/features/copilot
 
-cmd="$1"
-worktree_path="$2"
+# Enable debug mode with: WTR_ADAPTER_DEBUG=1
+set -e
 
-# Configuration
-COPILOT_ACCESS_TOKEN="${COPILOT_ACCESS_TOKEN:-}"
-COPILOT_API_URL="https://api.githubcopilot.com"
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ADAPTERS_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Check for GitHub CLI
-if ! command -v gh >/dev/null 2>&1; then
-    echo "GitHub CLI (gh) is required for Copilot integration" >&2
-    exit 1
+# Source adapter library if available
+if [ -f "$ADAPTERS_DIR/lib.sh" ]; then
+    # shellcheck source=/dev/null
+    source "$ADAPTERS_DIR/lib.sh"
 fi
 
-# Get or refresh token
-get_copilot_token() {
-    if [ -n "$COPILOT_ACCESS_TOKEN" ]; then
-        echo "$COPILOT_ACCESS_TOKEN"
-        return
+# Configuration
+COPILOT_API_URL="https://api.openai.com/v1"
+
+# Check for GitHub CLI
+check_github_cli() {
+    if command -v gh >/dev/null 2>&1; then
+        adapter_log_debug "GitHub CLI found"
+        return 0
+    else
+        adapter_log_error "GitHub CLI (gh) not found"
+        return 1
     fi
-    
-    # Try to get token from GitHub CLI
-    if token=$(gh auth token 2>/dev/null); then
-        echo "$token"
-        return
-    fi
-    
-    echo "Error: Could not get GitHub Copilot token" >&2
-    exit 1
 }
 
-case "$cmd" in
-    open)
-        token=$(get_copilot_token)
-        
-        # Get code context
-        cd "$worktree_path" || exit 1
-        context_file=$(mktemp)
-        
-        # Get recent changes
-        git log -n 5 --pretty=format:"%h - %s (%an, %ar)" > "$context_file"
-        echo -e "\n\nCurrent branch: $(git branch --show-current)\n" >> "$context_file"
-        
-        # Get current file if in editor
-        if [ -n "$(git status --porcelain)" ]; then
-            echo -e "\nUncommitted changes:\n" >> "$context_file"
-            git diff --stat >> "$context_file"
-        fi
-        
-        # Open Copilot in browser with context
-        if command -v xdg-open >/dev/null; then
-            xdg-open "https://github.com/features/copilot" >/dev/null 2>&1 &
-        elif command -v open >/dev/null; then
-            open "https://github.com/features/copilot" >/dev/null 2>&1 &
-        fi
-        
-        echo "GitHub Copilot ready! Context:"
-        cat "$context_file"
-        rm -f "$context_file"
-        ;;
-        
-    suggest)
-        # Get code suggestion
-        prompt="$3"
-        if [ -z "$prompt" ]; then
-            echo "Error: No prompt provided" >&2
+# Get GitHub authentication token
+get_github_token() {
+    if ! check_github_cli; then
+        adapter_log_error "GitHub CLI required"
+        return 1
+    fi
+    
+    adapter_log_debug "Getting GitHub token from CLI"
+    gh auth token 2>/dev/null || return 1
+}
+
+# Check Copilot configuration
+check_copilot() {
+    if ! check_github_cli; then
+        adapter_log_error "GitHub CLI is required"
+        echo ""
+        echo "Installation:"
+        echo "  macOS:  brew install gh"
+        echo "  Ubuntu: sudo apt-get install gh"
+        echo "  Manual: https://cli.github.com"
+        return 1
+    fi
+    
+    # Check if authenticated
+    if gh auth status >/dev/null 2>&1; then
+        adapter_log_info "GitHub CLI authenticated"
+        adapter_log_info "Copilot integration available"
+        return 0
+    else
+        adapter_log_error "GitHub CLI not authenticated"
+        echo ""
+        echo "Authenticate with: gh auth login"
+        return 1
+    fi
+}
+
+# Open Copilot (typically in editor or web)
+open_copilot() {
+    local target="$1"
+    
+    # Validate path
+    if ! adapter_validate_path "$target"; then
+        adapter_log_error "Invalid target path: $target"
+        return 1
+    fi
+    
+    # Check GitHub CLI
+    if ! check_github_cli; then
+        adapter_log_error "GitHub CLI is required for Copilot integration"
+        return 1
+    fi
+    
+    adapter_log_info "GitHub Copilot runs inside VS Code via extension"
+    adapter_log_info "Use 'editor' adapter to open with Copilot support"
+    echo ""
+    echo "To use GitHub Copilot:"
+    echo "1. Open directory with VS Code: code $target"
+    echo "2. Install Copilot extension from VS Code marketplace"
+    echo "3. Authenticate with GitHub"
+    echo "4. Ask Copilot questions with Ctrl+I"
+    echo ""
+    echo "More: https://github.com/features/copilot"
+}
+
+# Get Copilot status
+get_status() {
+    if check_copilot >/dev/null 2>&1; then
+        adapter_log_info "Copilot is configured and ready"
+        return 0
+    else
+        adapter_log_warn "Copilot not fully configured"
+        return 1
+    fi
+}
+
+# ============================================================================
+# Main Command Handler
+# ============================================================================
+
+main() {
+    local cmd="$1"
+    shift || { adapter_log_error "No command specified"; exit 1; }
+    
+    case "$cmd" in
+        open)
+            local target="${1:-.}"
+            open_copilot "$target"
+            ;;
+        check|status)
+            check_copilot
+            ;;
+        help|--help|-h)
+            echo "wtr GitHub Copilot Adapter"
+            echo "Usage: copilot.sh <command> [args]"
+            echo ""
+            echo "Commands:"
+            echo "  open <path>   Show Copilot setup for directory"
+            echo "  check|status  Check Copilot configuration"
+            echo "  help          Show this help"
+            echo ""
+            echo "Requirements:"
+            echo "  - GitHub CLI (gh) installed and authenticated"
+            echo "  - GitHub Copilot subscription or free trial"
+            echo "  - VS Code with Copilot extension (recommended)"
+            echo ""
+            echo "Environment Variables:"
+            echo "  WTR_ADAPTER_DEBUG  Set to 1 to enable debug logging"
+            echo ""
+            echo "Setup:"
+            echo "  1. Install GitHub CLI: https://cli.github.com"
+            echo "  2. Authenticate: gh auth login"
+            echo "  3. Install VS Code Copilot extension"
+            echo "  4. Open your repo with: code <path>"
+            echo ""
+            echo "More info: https://github.com/features/copilot"
+            ;;
+        *)
+            adapter_log_error "Unknown command: $cmd"
+            echo "Try: $0 help"
             exit 1
-        fi
-        
-        token=$(get_copilot_token)
-        response=$(curl -s -X POST "$COPILOT_API_URL/v1/engines/copilot-codex/completions" \
-            -H "Authorization: Bearer $token" \
-            -H "Content-Type: application/json" \
-            -d '{
-                "prompt": "'"$prompt"'",
-                "max_tokens": 150,
-                "temperature": 0.7
-            }')
-        
-        echo "$response" | jq -r '.choices[0].text' 2>/dev/null || echo "Error getting suggestion"
-        ;;
-        
-    *)
-        echo "Unknown command: $cmd" >&2
-        echo "Available commands: open, suggest" >&2
-        exit 1
-        ;;
-esac
+            ;;
+    esac
+}
+
+# Run main function
+main "$@"
