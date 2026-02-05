@@ -28,6 +28,7 @@ resolve_script_dir() {
 . "$WTR_DIR/lib/config.sh"
 . "$WTR_DIR/lib/platform.sh"
 . "$WTR_DIR/lib/core.sh"
+. "$WTR_DIR/lib/core/worktree.sh"
 . "$WTR_DIR/lib/copy.sh"
 . "$WTR_DIR/lib/hooks.sh"
 
