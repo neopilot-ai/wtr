@@ -3,26 +3,62 @@
 
 # Discover the absolute path to the repo root
 discover_repo_root() {
-  git rev-parse --show-toplevel 2>/dev/null
+  local repo_root
+  if ! repo_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+    log_error "Not inside a git repository"
+    return 1
+  fi
+  
+  if [ ! -d "$repo_root" ]; then
+    log_error "Invalid repository root: $repo_root"
+    return 1
+  fi
+  
+  echo "$repo_root"
 }
 
 # Resolve the base directory for worktrees (can be configured)
 resolve_base_dir() {
   local repo_root="$1"
+  
+  if [ -z "$repo_root" ] || [ ! -d "$repo_root" ]; then
+    log_error "Invalid repository root: $repo_root"
+    return 1
+  fi
+  
   local repo_name
-  repo_name=$(basename "$repo_root")
+  repo_name=$(basename "$repo_root") || return 1
+  
   local configured
-  configured=$(cfg_get "wtr.worktrees.dir")
+  configured=$(cfg_get "wtr.worktrees.dir") || true
+  
   if [ -n "$configured" ]; then
     # If absolute, use as is. If relative, join with repo root.
     if [[ "$configured" == /* ]]; then
-      echo "$configured"
+      if [ -d "$configured" ] || mkdir -p "$configured" 2>/dev/null; then
+        echo "$configured"
+      else
+        log_error "Cannot create worktrees directory: $configured"
+        return 1
+      fi
     else
-      echo "$repo_root/$configured"
+      local base="$repo_root/$configured"
+      if [ -d "$base" ] || mkdir -p "$base" 2>/dev/null; then
+        echo "$base"
+      else
+        log_error "Cannot create worktrees directory: $base"
+        return 1
+      fi
     fi
   else
     # Default: sibling directory to repo root
-    echo "$(dirname "$repo_root")/${repo_name}-worktrees"
+    local default_base="$(dirname "$repo_root")/${repo_name}-worktrees"
+    if [ -d "$default_base" ] || mkdir -p "$default_base" 2>/dev/null; then
+      echo "$default_base"
+    else
+      log_error "Cannot create default worktrees directory: $default_base"
+      return 1
+    fi
   fi
 }
 
@@ -47,8 +83,23 @@ resolve_default_branch() {
 # Sanitize branch name for use as a folder name
 sanitize_branch_name() {
   local name="$1"
+  
+  if [ -z "$name" ]; then
+    log_error "Cannot sanitize empty branch name"
+    return 1
+  fi
+  
   # Replace slashes and other unsafe chars with dashes, then collapse multiple dashes
-  echo "$name" | sed 's|[/\\:*?"<>|]| - |g' | tr -s ' ' '-' | sed 's/--*/-/g' | sed 's/^-//;s/-$//'
+  # Also limit length to 255 characters (filesystem limit)
+  local sanitized
+  sanitized=$(echo "$name" | sed 's|[/\\:*?"<>|]|-|g' | tr -s ' ' '-' | sed 's/--*/-/g' | sed 's/^-//;s/-$//' | cut -c1-200)
+  
+  if [ -z "$sanitized" ]; then
+    log_error "Branch name sanitization resulted in empty string: $name"
+    return 1
+  fi
+  
+  echo "$sanitized"
 }
 
 # Get current branch of a directory
@@ -134,6 +185,17 @@ create_worktree() {
   local force="$7"
   local custom_name="$8"
 
+  # Validate inputs
+  if [ -z "$branch" ] || [ -z "$from_ref" ]; then
+    log_error "Missing required parameters: branch='$branch', from_ref='$from_ref'"
+    return 1
+  fi
+  
+  if [ ! -d "$base_dir" ]; then
+    log_error "Base directory does not exist: $base_dir"
+    return 1
+  fi
+
   local folder_name
   if [ -n "$custom_name" ]; then
     folder_name="${prefix}$(sanitize_branch_name "$branch")-${custom_name}"
@@ -151,7 +213,9 @@ create_worktree() {
   # Fetch if requested
   if [ "$skip_fetch" -eq 0 ]; then
     log_step "Fetching from origin..."
-    git fetch origin "$from_ref" 2>/dev/null || true
+    if ! git fetch origin "$from_ref" 2>/dev/null; then
+      log_warn "Failed to fetch from origin, proceeding anyway"
+    fi
   fi
 
   # Prepare git worktree add command
@@ -167,10 +231,21 @@ create_worktree() {
   # Create worktree
   if git show-ref --verify --quiet "refs/heads/$branch"; then
     log_info "Branch '$branch' exists, checkout existing"
-    git worktree add "${args[@]}" "$path" "$branch" >&2
+    if ! git worktree add "${args[@]}" "$path" "$branch" >&2; then
+      log_error "Failed to create worktree: git worktree add failed"
+      return 1
+    fi
   else
     log_info "Creating new branch '$branch' from '$from_ref'"
-    git worktree add "${args[@]}" -b "$branch" "$path" "$from_ref" >&2
+    if ! git worktree add "${args[@]}" -b "$branch" "$path" "$from_ref" >&2; then
+      log_error "Failed to create worktree: git worktree add failed"
+      return 1
+    fi
+  fi
+  
+  if [ ! -d "$path" ]; then
+    log_error "Worktree path was not created: $path"
+    return 1
   fi
 
   echo "$path"

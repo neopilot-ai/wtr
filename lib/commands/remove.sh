@@ -1,29 +1,10 @@
 #!/bin/bash
-# remove.sh - Remove a worktree
+# lib/commands/remove.sh - Remove a worktree  
+# Aliases: remove, rm -> calls cmd_remove (defined in bin/wtr)
 
+# Note: This is a placeholder. The actual cmd_remove function is defined
+# in bin/wtr and will override this when sourced. This ensures the
+# dispatcher can reference cmd_remove even if bin/wtr hasn't been loaded yet.
 cmd_remove() {
-  case "${1:-}" in
-    -h|--help)
-      cat <<'EOF'
-Usage: wtr remove <branch> [options]
-
-Remove a Git worktree and optionally prune the branch.
-
-Arguments:
-  branch              Branch name to remove
-
-Options:
-  --force             Force removal even if dirty
-  --prune             Delete the branch after removing worktree
-  -h, --help          Show this help message
-
-Examples:
-  wtr remove feature/old
-  wtr remove hotfix/done --prune
-EOF
-      return 0
-      ;;
-  esac
-
-  log_info "remove command: $*"
+  return 0  # Placeholder - will be overridden by bin/wtr
 }

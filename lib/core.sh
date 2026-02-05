@@ -36,6 +36,9 @@ dispatch_command() {
     doctor)
       cmd_doctor "$@"
       ;;
+    config)
+      cmd_config "$@"
+      ;;
     # Help and version
     --help|-h|help)
       cmd_help
@@ -63,6 +66,7 @@ Commands:
   list                List all worktrees
   run [options]       Run commands in worktrees
   exec <branch>       Execute in a worktree
+  config              Manage configuration
   doctor              Run system diagnostics
 
 Options:
@@ -72,6 +76,7 @@ Options:
 Examples:
   wtr add feature/new-ui
   wtr list
+  wtr config get wtr.editor.default
   wtr doctor
 
 For command-specific help:

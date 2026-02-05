@@ -106,10 +106,23 @@ copy_directories() {
   local excludes="${4:-}"
 
   [ -z "$includes" ] && return 0
+  
+  if [ ! -d "$src" ]; then
+    log_error "Source directory does not exist: $src"
+    return 1
+  fi
+  
+  if [ ! -d "$dst" ]; then
+    if ! mkdir -p "$dst"; then
+      log_error "Failed to create destination directory: $dst"
+      return 1
+    fi
+  fi
 
+  local count=0
   echo "$includes" | while read -r d; do
     [ -z "$d" ] && continue
-    [ ! -d "$src/$d" ] && continue
+    [ ! -d "$src/$d" ] && { log_debug "Directory not found: $src/$d"; continue; }
 
     # Skip if excluded
     local skip=0
@@ -123,12 +136,18 @@ copy_directories() {
         fi
       done <<< "$excludes"
     fi
-    [ "$skip" -eq 1 ] && continue
+    [ "$skip" -eq 1 ] && { log_debug "Directory excluded: $d"; continue; }
 
-    echo "Copying directory: $d"
-    mkdir -p "$(dirname "$dst/$d")"
-    cp -Rp "$src/$d" "$dst/$d"
+    if ! { mkdir -p "$(dirname "$dst/$d")" && cp -Rp "$src/$d" "$dst/$d"; }; then
+      log_warn "Failed to copy directory: $d"
+      continue
+    fi
+    
+    count=$((count + 1))
+    log_debug "Copied directory: $d"
   done
+  
+  log_info "Copied $count directories"
 }
 
 # Legacy alias

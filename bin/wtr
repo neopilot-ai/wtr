@@ -6,7 +6,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # Version
-WTR_VERSION="2.0.0"
+WTR_VERSION="2.1.0"
 
 # Find the script directory (resolve symlinks; allow env override)
 resolve_script_dir() {
@@ -53,9 +53,16 @@ editor_open() {
     target="$workspace"
   fi
 
-  # $WTR_EDITOR_CMD may contain arguments (e.g., "code --wait")
-  # Using eval here is necessary to handle multi-word commands properly
-  eval "$WTR_EDITOR_CMD \"\$target\""
+  # Parse editor command safely without eval to prevent command injection
+  # Use array for proper argument handling
+  local -a editor_cmd
+  if [ -n "$WTR_EDITOR_CMD" ]; then
+    read -ra editor_cmd <<< "$WTR_EDITOR_CMD"
+    "${editor_cmd[@]}" "$target" || log_warn "Failed to open editor: $WTR_EDITOR_CMD"
+  else
+    log_error "No editor command configured"
+    return 1
+  fi
 }
 
 # Globals set by load_ai_adapter: WTR_AI_CMD, WTR_AI_CMD_NAME
@@ -66,9 +73,21 @@ ai_can_start() {
 ai_start() {
   local path="$1"
   shift
-  # $WTR_AI_CMD may contain arguments (e.g., "bunx @github/copilot@latest")
-  # Using eval here is necessary to handle multi-word commands properly
-  (cd "$path" && eval "$WTR_AI_CMD \"\$@\"")
+  
+  if [ ! -d "$path" ]; then
+    log_error "Invalid path: $path"
+    return 1
+  fi
+  
+  # Parse AI command safely without eval to prevent command injection
+  local -a ai_cmd
+  if [ -n "$WTR_AI_CMD" ]; then
+    read -ra ai_cmd <<< "$WTR_AI_CMD"
+    (cd "$path" && "${ai_cmd[@]}" "$@") || log_warn "Failed to start AI tool: $WTR_AI_CMD"
+  else
+    log_error "No AI tool command configured"
+    return 1
+  fi
 }
 
 # Main dispatcher
@@ -199,6 +218,18 @@ cmd_create() {
       log_error "Branch name required"
       exit 1
     fi
+  fi
+  
+  # Validate branch name (basic validation)
+  if [ ${#branch_name} -gt 250 ]; then
+    log_error "Branch name too long (max 250 chars): $branch_name"
+    exit 1
+  fi
+  
+  # Check for invalid patterns
+  if [[ "$branch_name" =~ ^- ]] || [[ "$branch_name" =~ [[:space:]] ]]; then
+    log_error "Invalid branch name (starts with dash or contains whitespace): $branch_name"
+    exit 1
   fi
 
   # Determine from_ref with precedence: --from > --from-current > default
@@ -1496,141 +1527,8 @@ cmd_adapter() {
   echo ""
   echo ""
   echo "Tip: Set defaults with:"
-  echo "   git wtr config set wtr.editor.default <name>"
-  echo "   git wtr config set wtr.ai.default <name>"
-}
-
-# Config command
-cmd_config() {
-  local scope="auto"
-  local action="" key="" value=""
-  local extra_args=""
-
-  # Parse args flexibly: action, key, value, and --global/--local anywhere
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --global|global)
-        scope="global"
-        shift
-        ;;
-      --local|local)
-        scope="local"
-        shift
-        ;;
-      --system|system)
-        scope="system"
-        shift
-        ;;
-      get|set|unset|add|list)
-        action="$1"
-        shift
-        ;;
-      *)
-        if [ -z "$key" ]; then
-          key="$1"
-          shift
-        elif [ -z "$value" ] && { [ "$action" = "set" ] || [ "$action" = "add" ]; }; then
-          value="$1"
-          shift
-        else
-          # Track extra tokens for validation (add space only if not first)
-          extra_args="${extra_args:+$extra_args }$1"
-          shift
-        fi
-        ;;
-    esac
-  done
-
-  # Default action: list if no action and no key, otherwise get
-  if [ -z "$action" ]; then
-    if [ -z "$key" ]; then
-      action="list"
-    else
-      action="get"
-    fi
-  fi
-
-  # Resolve "auto" scope to "local" for set/add/unset operations (they need explicit scope)
-  # This ensures log messages show the actual scope being used
-  local resolved_scope="$scope"
-  if [ "$scope" = "auto" ] && [ "$action" != "list" ] && [ "$action" != "get" ]; then
-    resolved_scope="local"
-  fi
-
-  # Reject --system for write operations (requires root, not commonly useful)
-  if [ "$scope" = "system" ]; then
-    case "$action" in
-      set|add|unset)
-        log_error "--system is not supported for write operations (requires root privileges)"
-        log_error "Use --local or --global instead"
-        exit 1
-        ;;
-    esac
-  fi
-
-  case "$action" in
-    get)
-      if [ -z "$key" ]; then
-        log_error "Usage: git wtr config get <key> [--local|--global|--system]"
-        exit 1
-      fi
-      # Warn on unexpected extra arguments
-      if [ -n "$extra_args" ]; then
-        log_warn "get action: ignoring extra arguments: $extra_args"
-      fi
-      cfg_get_all "$key" "" "$scope"
-      ;;
-    set)
-      if [ -z "$key" ] || [ -z "$value" ]; then
-        log_error "Usage: git wtr config set <key> <value> [--local|--global]"
-        exit 1
-      fi
-      # Warn on unexpected extra arguments
-      if [ -n "$extra_args" ]; then
-        log_warn "set action: ignoring extra arguments: $extra_args"
-      fi
-      cfg_set "$key" "$value" "$resolved_scope"
-      log_info "Config set: $key = $value ($resolved_scope)"
-      ;;
-    add)
-      if [ -z "$key" ] || [ -z "$value" ]; then
-        log_error "Usage: git wtr config add <key> <value> [--local|--global]"
-        exit 1
-      fi
-      # Warn on unexpected extra arguments
-      if [ -n "$extra_args" ]; then
-        log_warn "add action: ignoring extra arguments: $extra_args"
-      fi
-      cfg_add "$key" "$value" "$resolved_scope"
-      log_info "Config added: $key = $value ($resolved_scope)"
-      ;;
-    unset)
-      if [ -z "$key" ]; then
-        log_error "Usage: git wtr config unset <key> [--local|--global]"
-        exit 1
-      fi
-      # Warn on unexpected extra arguments (including value which unset doesn't use)
-      if [ -n "$value" ] || [ -n "$extra_args" ]; then
-        log_warn "unset action: ignoring extra arguments: ${value}${value:+ }${extra_args}"
-      fi
-      cfg_unset "$key" "$resolved_scope"
-      log_info "Config unset: $key ($resolved_scope)"
-      ;;
-    list)
-      # Warn on unexpected extra arguments
-      if [ -n "$key" ] || [ -n "$extra_args" ]; then
-        log_warn "list action doesn't accept additional arguments (ignoring: ${key}${key:+ }${extra_args})"
-      fi
-      # Use cfg_list for proper formatting and .wtrconfig support
-      cfg_list "$scope"
-      ;;
-    *)
-      log_error "Unknown config action: $action"
-      log_error "Usage: git wtr config [list] [--local|--global|--system]"
-      log_error "       git wtr config {get|set|add|unset} <key> [value] [--local|--global]"
-      exit 1
-      ;;
-  esac
+  echo "   wtr config set wtr.editor.default <name>"
+  echo "   wtr config set wtr.ai.default <name>"
 }
 
 # Resolve workspace file for VS Code/Cursor editors

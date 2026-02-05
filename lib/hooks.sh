@@ -60,7 +60,7 @@ run_hooks_in() {
         export WTR_REPO_ROOT="$repo_root"
         [ -n "${*:-}" ] && export "$@"
         
-        cd "$target_dir" && eval "$cmd"
+        cd "$target_dir" && bash -c "$cmd"
       ) || {
         log_error "Config hook failed: $cmd"
         return 1
