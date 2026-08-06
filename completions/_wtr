@@ -52,6 +52,15 @@ _wtr() {
     '--force[Force operation]'
   )
 
+  local -a clean_flags=(
+    '--merged[Also remove worktrees with merged PRs]'
+    '--closed[Also remove worktrees with closed PRs]'
+    '--yes[Non-interactive mode]'
+    '-y[Non-interactive mode (short)]'
+    '--dry-run[Show what would be removed without removing]'
+    '-n[Dry run (short)]'
+  )
+
   _arguments -C \
     "1: :->cmnds" \
     "*::arg:->args"
@@ -64,6 +73,9 @@ _wtr() {
       case $line[1] in
         create|new)
           _arguments $create_flags
+          ;;
+        clean)
+          _arguments $clean_flags
           ;;
         remove|rm|go|run|editor|ai|hooks|sync|backup|restore)
           local -a branches

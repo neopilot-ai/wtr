@@ -44,6 +44,14 @@ complete -c wtr -n "__fish_seen_subcommand_from $create_cmds" -l editor -d 'Open
 complete -c wtr -n "__fish_seen_subcommand_from $create_cmds" -l ai -d 'Start AI' -xa "$ai_tools"
 complete -c wtr -n "__fish_seen_subcommand_from $create_cmds" -l preset -d 'Apply preset' -r
 
+# Flags for clean
+complete -c wtr -n '__fish_seen_subcommand_from clean' -l merged -d 'Remove merged PRs'
+complete -c wtr -n '__fish_seen_subcommand_from clean' -l closed -d 'Remove closed PRs'
+complete -c wtr -n '__fish_seen_subcommand_from clean' -l yes -d 'Non-interactive'
+complete -c wtr -n '__fish_seen_subcommand_from clean' -s y -d 'Non-interactive (short)'
+complete -c wtr -n '__fish_seen_subcommand_from clean' -l dry-run -d 'Show what would be removed'
+complete -c wtr -n '__fish_seen_subcommand_from clean' -s n -d 'Dry run (short)'
+
 # Branch completion
 complete -c wtr -n '__fish_seen_subcommand_from remove rm go run editor ai hooks sync backup restore' \
     -a '(git branch --format=\'%(refname:short)\' 2>/dev/null)' -f

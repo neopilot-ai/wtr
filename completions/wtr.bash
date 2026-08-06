@@ -44,7 +44,11 @@ _wtr() {
           COMPREPLY=($(compgen -W "$flags" -- "$cur"))
         fi
         ;;
-      remove|rm|go|run|ls|list|status|dashboard|ui|hooks|sync|exec|backup|restore|clean)
+      clean)
+        local clean_flags="--merged --closed --yes -y --dry-run -n"
+        COMPREPLY=($(compgen -W "$clean_flags" -- "$cur"))
+        ;;
+      remove|rm|go|run|ls|list|status|dashboard|ui|hooks|sync|exec|backup|restore)
         # Complete with branch names
         local branches=$(git branch --format='%(refname:short)' 2>/dev/null)
         COMPREPLY=($(compgen -W "$branches" -- "$cur"))

@@ -1348,6 +1348,7 @@ EOF
 # Clean command (remove prunable worktrees)
 cmd_clean() {
   local merged_mode=0
+  local closed_mode=0
   local yes_mode=0
   local dry_run=0
 
@@ -1358,6 +1359,10 @@ cmd_clean() {
         merged_mode=1
         shift
         ;;
+      --closed)
+        closed_mode=1
+        shift
+        ;;
       --yes|-y)
         yes_mode=1
         shift
@@ -1365,6 +1370,29 @@ cmd_clean() {
       --dry-run|-n)
         dry_run=1
         shift
+        ;;
+      -h|--help)
+        cat <<'EOF'
+Usage: wtr clean [options]
+
+Remove stale/prunable worktrees and empty directories.
+
+Options:
+  --merged       Also remove worktrees with merged PRs (uses gh CLI)
+  --closed       Also remove worktrees with closed PRs (uses gh CLI)
+  --yes, -y      Skip confirmation prompts
+  --dry-run, -n  Show what would be removed without removing
+  -h, --help     Show this help message
+
+Examples:
+  wtr clean
+  wtr clean --merged
+  wtr clean --closed
+  wtr clean --merged --closed
+  wtr clean --merged --yes
+  wtr clean --dry-run --merged --closed
+EOF
+        return 0
         ;;
       -*)
         log_error "Unknown flag: $1"
@@ -1417,9 +1445,18 @@ EOF
     log_info "Cleanup complete (no empty directories found)"
   fi
 
-  # --merged mode: remove worktrees with merged PRs (handles squash merges)
-  if [ "$merged_mode" -eq 1 ]; then
-    log_step "Checking for worktrees with merged PRs..."
+  # --merged and/or --closed mode: remove worktrees with merged/closed PRs
+  if [ "$merged_mode" -eq 1 ] || [ "$closed_mode" -eq 1 ]; then
+    local mode_desc=""
+    if [ "$merged_mode" -eq 1 ] && [ "$closed_mode" -eq 1 ]; then
+      mode_desc="merged or closed"
+    elif [ "$merged_mode" -eq 1 ]; then
+      mode_desc="merged"
+    else
+      mode_desc="closed"
+    fi
+
+    log_step "Checking for worktrees with $mode_desc PRs..."
 
     # Ensure gh CLI is available
     if ! command -v gh >/dev/null 2>&1; then
@@ -1478,11 +1515,25 @@ EOF
         continue
       fi
 
-      # Check if branch has a merged PR on GitHub
-      local pr_state
-      pr_state=$(gh pr list --head "$branch" --state merged --json state --jq '.[0].state' 2>/dev/null || true)
+      # Check PR state based on mode
+      local pr_state=""
+      if [ "$merged_mode" -eq 1 ] && [ "$closed_mode" -eq 1 ]; then
+        # Check for merged OR closed
+        pr_state=$(gh pr list --head "$branch" --state merged,closed --json state --jq '.[0].state' 2>/dev/null || true)
+      elif [ "$merged_mode" -eq 1 ]; then
+        # Check for merged only
+        pr_state=$(gh pr list --head "$branch" --state merged --json state --jq '.[0].state' 2>/dev/null || true)
+      else
+        # Check for closed only
+        pr_state=$(gh pr list --head "$branch" --state closed --json state --jq '.[0].state' 2>/dev/null || true)
+      fi
 
-      if [ "$pr_state" = "MERGED" ]; then
+      local should_remove=0
+      if [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
+        should_remove=1
+      fi
+
+      if [ "$should_remove" -eq 1 ]; then
         if [ "$dry_run" -eq 1 ]; then
           log_info "[dry-run] Would remove: $branch ($dir)"
           removed=$((removed + 1))
@@ -1506,14 +1557,13 @@ EOF
           skipped=$((skipped + 1))
         fi
       fi
-      # Branches without merged PRs are silently skipped (this is the normal case)
     done
 
     echo ""
     if [ "$dry_run" -eq 1 ]; then
       log_info "Dry run complete. Would remove: $removed, Skipped: $skipped"
     else
-      log_info "Merged cleanup complete. Removed: $removed, Skipped: $skipped"
+      log_info "$mode_desc cleanup complete. Removed: $removed, Skipped: $skipped"
     fi
   fi
 }
@@ -1898,11 +1948,12 @@ SETUP & MAINTENANCE:
          List available editor & AI tool adapters
          Note: Any command in your PATH can be used (e.g., code-insiders, bunx)
 
-  clean [options]
-         Remove stale/prunable worktrees and empty directories
-         --merged: also remove worktrees with merged PRs (uses gh CLI)
-         --yes, -y: skip confirmation prompts
-         --dry-run, -n: show what would be removed without removing
+clean [options]
+          Remove stale/prunable worktrees and empty directories
+          --merged: also remove worktrees with merged PRs (uses gh CLI)
+          --closed: also remove worktrees with closed PRs (uses gh CLI)
+          --yes, -y: skip confirmation prompts
+          --dry-run, -n: show what would be removed without removing
 
   version
          Show version
