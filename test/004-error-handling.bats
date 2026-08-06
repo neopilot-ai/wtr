@@ -5,7 +5,6 @@
 setup() {
   TMP=$(mktemp -d)
   cd "$TMP"
-  git init >/dev/null
   mkdir -p repo
   cd repo
   git init >/dev/null

@@ -41,7 +41,7 @@ fi
 # These will be overridden if an adapter file is sourced
 # Globals set by load_editor_adapter: WTR_EDITOR_CMD, WTR_EDITOR_CMD_NAME
 editor_can_open() {
-  command -v "$WTR_EDITOR_CMD_NAME" >/dev/null 2>&1
+  command -v "${WTR_EDITOR_CMD_NAME:-}" >/dev/null 2>&1
 }
 
 editor_open() {
@@ -68,7 +68,7 @@ editor_open() {
 
 # Globals set by load_ai_adapter: WTR_AI_CMD, WTR_AI_CMD_NAME
 ai_can_start() {
-  command -v "$WTR_AI_CMD_NAME" >/dev/null 2>&1
+  command -v "${WTR_AI_CMD_NAME:-}" >/dev/null 2>&1
 }
 
 ai_start() {
@@ -110,6 +110,8 @@ cmd_create() {
   local open_editor=0
   local start_ai=0
   local preset=""
+
+  [ "${NEOPILOT_ASSUME_YES:-0}" = "1" ] && yes_mode=1
 
   # Parse flags and arguments
   while [ $# -gt 0 ]; do
@@ -157,6 +159,32 @@ cmd_create() {
       --ai|-a)
         start_ai=1
         shift
+        ;;
+      -h|--help)
+        cat <<'EOF'
+Usage: wtr new <branch> [options]
+
+Create a new worktree (folder named after branch).
+
+Options:
+  --from <ref>        Create from specific ref
+  --from-current      Create from current branch (for parallel variants)
+  --track <mode>      Tracking mode (auto|remote|local|none)
+  --no-copy           Skip file copying
+  --no-fetch          Skip git fetch
+  --force             Allow same branch in multiple worktrees (requires --name)
+  --name <suffix>     Custom folder name suffix (e.g., backend, frontend)
+  --yes               Non-interactive mode
+  -e, --editor        Open in editor after creation
+  -a, --ai            Start AI tool after creation
+  -h, --help          Show this help message
+
+Examples:
+  wtr new feature/new-ui
+  wtr new feature/auth --from main
+  wtr new feature/auth --editor
+EOF
+        return 0
         ;;
       -*)
         log_error "Unknown flag: $1"
@@ -266,6 +294,45 @@ cmd_create() {
   echo "Location: $base_dir/${prefix}${folder_name}"
   echo "Branch: $branch_name"
 
+  # Dry-run mode: show what would happen without making any changes
+  if [ "${NEOPILOT_DRY_RUN:-0}" = "1" ]; then
+    echo "dry-run: would create worktree $branch_name at $base_dir/${prefix}${folder_name}"
+    if [ "$skip_copy" -eq 0 ]; then
+      local dry_includes dry_excludes dry_file_includes
+      dry_includes=$(cfg_get_all wtr.copy.include copy.include)
+      dry_excludes=$(cfg_get_all wtr.copy.exclude copy.exclude)
+      dry_file_includes=$(parse_pattern_file "$repo_root/.worktreeinclude")
+      if [ -n "$dry_file_includes" ]; then
+        dry_includes="$dry_includes"$'\n'"$dry_file_includes"
+      fi
+      if [ -n "$dry_includes" ]; then
+        local dry_files dry_f
+        if git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          dry_files=$(git -C "$repo_root" ls-files --cached --others --exclude-standard)
+        else
+          dry_files=$(cd "$repo_root" && find . -type f | sed 's|^./||')
+        fi
+        while read -r dry_f || [ -n "$dry_f" ]; do
+          [ -z "$dry_f" ] && continue
+          if matches_patterns "$dry_f" "$dry_includes" && { [ -z "$dry_excludes" ] || ! matches_patterns "$dry_f" "$dry_excludes"; }; then
+            echo "dry-run: would copy $dry_f"
+          fi
+        done <<< "$dry_files"
+      fi
+    fi
+    if [ "$open_editor" -eq 1 ]; then
+      local dry_editor
+      dry_editor=$(cfg_default wtr.editor.default WTR_EDITOR_DEFAULT "none" defaults.editor)
+      echo "dry-run: would open editor: $dry_editor"
+    fi
+    if [ "$start_ai" -eq 1 ]; then
+      local dry_ai
+      dry_ai=$(cfg_default wtr.ai.default WTR_AI_DEFAULT "none" defaults.ai)
+      echo "dry-run: would start AI tool: $dry_ai"
+    fi
+    return 0
+  fi
+
   # Run pre-create hooks (in main repo)
   if ! run_hooks preCreate \
     REPO_ROOT="$repo_root" \
@@ -336,7 +403,7 @@ cmd_create() {
       local workspace_file
       workspace_file=$(resolve_workspace_file "$worktree_path")
       log_step "Opening in $editor..."
-      editor_open "$worktree_path" "$workspace_file"
+      editor_open "$worktree_path" "$workspace_file" || log_warn "Failed to open editor: $editor"
     else
       open_in_gui "$worktree_path"
       log_info "Opened in file browser (no editor configured)"
@@ -352,7 +419,7 @@ cmd_create() {
     else
       load_ai_adapter "$ai_tool"
       log_step "Starting $ai_tool..."
-      ai_start "$worktree_path"
+      ai_start "$worktree_path" || log_warn "Failed to start AI tool: $ai_tool"
     fi
   fi
 
@@ -373,6 +440,8 @@ cmd_remove() {
   local force=0
   local identifiers=""
 
+  [ "${NEOPILOT_ASSUME_YES:-0}" = "1" ] && { yes_mode=1; force=1; }
+
   # Parse flags
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -387,6 +456,26 @@ cmd_remove() {
       --force)
         force=1
         shift
+        ;;
+      -h|--help)
+        cat <<'EOF'
+Usage: wtr rm <branch> [<branch>...] [options]
+
+Remove worktree(s) by branch name.
+
+Options:
+  --delete-branch  Also delete the branch
+  --force          Force removal (dirty worktree)
+  --yes            Skip confirmation
+  -h, --help       Show this help message
+
+Examples:
+  wtr rm my-feature
+  wtr rm feature/auth feature/bugfix
+  wtr rm my-feature --delete-branch
+  wtr rm my-feature --force
+EOF
+        return 0
         ;;
       -*)
         log_error "Unknown flag: $1"
@@ -405,15 +494,38 @@ cmd_remove() {
     identifiers="$selected"
   fi
 
+  # Split identifiers into an array (IFS excludes space in this script)
+  local -a id_array
+  IFS=' ' read -r -a id_array <<< "$identifiers"
+
   local repo_root base_dir prefix
   repo_root=$(discover_repo_root) || exit 1
   base_dir=$(resolve_base_dir "$repo_root")
   prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
 
-  for identifier in $identifiers; do
+  # Dry-run mode: show what would happen without making any changes
+  if [ "${NEOPILOT_DRY_RUN:-0}" = "1" ]; then
+    for identifier in "${id_array[@]:-}"; do
+      [ -z "$identifier" ] && continue
+      local dry_target dry_is_main dry_path
+      dry_target=$(resolve_target "$identifier" "$repo_root" "$base_dir" "$prefix") || continue
+      dry_is_main=$(echo "$dry_target" | cut -f1)
+      dry_path=$(echo "$dry_target" | cut -f2)
+      if [ "$dry_is_main" = "1" ]; then
+        echo "dry-run: would remove main repository (skipped)"
+      else
+        echo "dry-run: would remove $(basename "$dry_path")"
+      fi
+    done
+    return 0
+  fi
+
+  local failed=0
+  for identifier in "${id_array[@]:-}"; do
+    [ -z "$identifier" ] && continue
     # Resolve target branch
     local target is_main worktree_path branch_name
-    target=$(resolve_target "$identifier" "$repo_root" "$base_dir" "$prefix") || continue
+    target=$(resolve_target "$identifier" "$repo_root" "$base_dir" "$prefix") || { failed=1; continue; }
     is_main=$(echo "$target" | cut -f1)
     worktree_path=$(echo "$target" | cut -f2)
     branch_name=$(echo "$target" | cut -f3)
@@ -421,6 +533,7 @@ cmd_remove() {
     # Cannot remove main repository
     if [ "$is_main" = "1" ]; then
       log_error "Cannot remove main repository"
+      failed=1
       continue
     fi
 
@@ -433,6 +546,7 @@ cmd_remove() {
       BRANCH="$branch_name"; then
       if [ "$force" -eq 0 ]; then
         log_error "Pre-remove hook failed for $branch_name. Use --force to skip hooks."
+        failed=1
         continue
       else
         log_warn "Pre-remove hook failed, continuing due to --force"
@@ -441,6 +555,7 @@ cmd_remove() {
 
     # Remove the worktree
     if ! remove_worktree "$worktree_path" "$force"; then
+      failed=1
       continue
     fi
 
@@ -463,6 +578,8 @@ cmd_remove() {
       WORKTREE_PATH="$worktree_path" \
       BRANCH="$branch_name"
   done
+
+  return $failed
 }
 
 # Go command (navigate to worktree - prints path for shell integration)
@@ -1148,6 +1265,22 @@ cmd_list() {
         porcelain=1
         shift
         ;;
+      -h|--help)
+        cat <<'EOF'
+Usage: wtr list [options]
+
+List all Git worktrees in the current repository.
+
+Options:
+  --porcelain     Machine-readable output (path<tab>branch<tab>status)
+  -h, --help      Show this help message
+
+Examples:
+  wtr list
+  wtr list --porcelain
+EOF
+        return 0
+        ;;
       *)
         shift
         ;;
@@ -1387,6 +1520,26 @@ EOF
 
 # Doctor command (health check)
 cmd_doctor() {
+  if [ $# -gt 0 ]; then
+    case "$1" in
+      -h|--help)
+        cat <<'EOF'
+Usage: wtr doctor [options]
+
+Run system diagnostics: verify git, repository, worktrees directory,
+configured editor and AI tools.
+
+Options:
+  -h, --help      Show this help message
+
+Examples:
+  wtr doctor
+EOF
+        return 0
+        ;;
+    esac
+  fi
+
   echo "Running git wtr health check..."
   echo ""
 
@@ -1431,8 +1584,7 @@ cmd_doctor() {
     # Check if adapter exists
     local editor_adapter="$WTR_DIR/adapters/editor/${editor}.sh"
     if [ -f "$editor_adapter" ]; then
-      . "$editor_adapter"
-      if editor_can_open 2>/dev/null; then
+      if "$editor_adapter" check >/dev/null 2>&1; then
         echo "[OK] Editor: $editor (found)"
       else
         echo "[!] Editor: $editor (configured but not found in PATH)"
@@ -1451,8 +1603,7 @@ cmd_doctor() {
     # Check if adapter exists
     local adapter_file="$WTR_DIR/adapters/ai/${ai_tool}.sh"
     if [ -f "$adapter_file" ]; then
-      . "$adapter_file"
-      if ai_can_start 2>/dev/null; then
+      if "$adapter_file" check >/dev/null 2>&1; then
         echo "[OK] AI tool: $ai_tool (found)"
       else
         echo "[!] AI tool: $ai_tool (configured but not found in PATH)"
@@ -1494,9 +1645,7 @@ cmd_adapter() {
     if [ -f "$adapter_file" ]; then
       local adapter_name
       adapter_name=$(basename "$adapter_file" .sh)
-      . "$adapter_file"
-
-      if editor_can_open 2>/dev/null; then
+      if "$adapter_file" check >/dev/null 2>&1; then
         printf "%-15s %-15s %s\n" "$adapter_name" "[ready]" ""
       else
         printf "%-15s %-15s %s\n" "$adapter_name" "[missing]" "Not found in PATH"
@@ -1515,9 +1664,7 @@ cmd_adapter() {
     if [ -f "$adapter_file" ]; then
       local adapter_name
       adapter_name=$(basename "$adapter_file" .sh)
-      . "$adapter_file"
-
-      if ai_can_start 2>/dev/null; then
+      if "$adapter_file" check >/dev/null 2>&1; then
         printf "%-15s %-15s %s\n" "$adapter_name" "[ready]" ""
       else
         printf "%-15s %-15s %s\n" "$adapter_name" "[missing]" "Not found in PATH"
@@ -1566,7 +1713,7 @@ resolve_workspace_file() {
 # Load editor adapter
 load_editor_adapter() {
   local editor="$1"
-  local adapter_file="$WTR_DIR/adapters/editor/${editor}.sh"
+  WTR_ADAPTER_FILE="$WTR_DIR/adapters/editor/${editor}.sh"
 
   # Set defaults first (can be overridden by adapter)
   local cmd_name="${editor%% *}"
@@ -1574,24 +1721,25 @@ load_editor_adapter() {
   WTR_EDITOR_CMD_NAME="$cmd_name"
 
   # Try loading explicit adapter first (allows special handling)
-  if [ -f "$adapter_file" ]; then
+  if [ -f "$WTR_ADAPTER_FILE" ]; then
     # If it's a script-style adapter (not just defining variables/functions), wrap it
-    if grep -q "case \"\$1\" in" "$adapter_file"; then
+    if grep -qE 'case "\$(1|cmd)" in' "$WTR_ADAPTER_FILE"; then
       editor_open() {
         local path="$1"
         local workspace="${2:-}"
         local target="$path"
         [ -n "$workspace" ] && [ -f "$workspace" ] && target="$workspace"
-        "$adapter_file" open "$target"
+        "${WTR_ADAPTER_FILE:?}" open "$target"
       }
     else
-      . "$adapter_file"
+      set --
+      . "$WTR_ADAPTER_FILE"
     fi
     return 0
   fi
 
   if ! command -v "$cmd_name" >/dev/null 2>&1; then
-    log_error "Editor '$editor' not found"
+    log_error "Unknown editor: $editor (not available)"
     log_info "Built-in adapters: cursor, vscode, zed, idea, pycharm, webstorm, vim, nvim, emacs, sublime, nano, atom"
     log_info "Or use any editor command available in your PATH (e.g., code-insiders, fleet)"
     exit 1
@@ -1601,7 +1749,7 @@ load_editor_adapter() {
 # Load AI adapter
 load_ai_adapter() {
   local ai_tool="$1"
-  local adapter_file="$WTR_DIR/adapters/ai/${ai_tool}.sh"
+  WTR_ADAPTER_FILE="$WTR_DIR/adapters/ai/${ai_tool}.sh"
 
   # Set defaults first
   local cmd_name="${ai_tool%% *}"
@@ -1609,8 +1757,8 @@ load_ai_adapter() {
   WTR_AI_CMD_NAME="$cmd_name"
 
   # Try loading explicit adapter first (allows special handling)
-  if [ -f "$adapter_file" ]; then
-    if grep -q "case \"\$1\" in" "$adapter_file"; then
+  if [ -f "$WTR_ADAPTER_FILE" ]; then
+    if grep -qE 'case "\$(1|cmd)" in' "$WTR_ADAPTER_FILE"; then
       ai_start() {
         local path="$1"
         shift
@@ -1620,10 +1768,11 @@ load_ai_adapter() {
           cmd="$1"
           shift
         fi
-        "$adapter_file" "$cmd" "$path" "$@"
+        "${WTR_ADAPTER_FILE:?}" "$cmd" "$path" "$@"
       }
     else
-      . "$adapter_file"
+      set --
+      . "$WTR_ADAPTER_FILE"
     fi
     return 0
   fi
@@ -1640,6 +1789,8 @@ load_ai_adapter() {
 cmd_help() {
   cat <<'EOF'
 git wtr - Git Worktree Runner
+
+Usage: git wtr <command> [options]
 
 PHILOSOPHY: Configuration over flags. Set defaults once, then use simple commands.
 

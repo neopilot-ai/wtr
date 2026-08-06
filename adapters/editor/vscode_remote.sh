@@ -188,9 +188,8 @@ main() {
     esac
 }
 
+
 # Run main function
-main "$@"    *)
-        echo "Unknown command: $cmd" >&2
-        exit 1
-        ;;
-esac
+if [ $# -gt 0 ]; then
+    main "$@"
+fi

@@ -218,26 +218,28 @@ create_worktree() {
     fi
   fi
 
-  # Prepare git worktree add command
-  local args=()
-  [ "$force" -eq 1 ] && args+=("--force")
-
-  # Tracking mode
-  case "$track_mode" in
-    remote) args+=("--track") ;;
-    none) args+=("--no-track") ;;
-  esac
-
   # Create worktree
   if git show-ref --verify --quiet "refs/heads/$branch"; then
     log_info "Branch '$branch' exists, checkout existing"
-    if ! git worktree add "${args[@]}" "$path" "$branch" >&2; then
+    set -- "$path" "$branch"
+    [ "$force" -eq 1 ] && set -- --force "$@"
+    case "$track_mode" in
+      remote) set -- --track "$@" ;;
+      none) set -- --no-track "$@" ;;
+    esac
+    if ! git worktree add "$@" >&2; then
       log_error "Failed to create worktree: git worktree add failed"
       return 1
     fi
   else
     log_info "Creating new branch '$branch' from '$from_ref'"
-    if ! git worktree add "${args[@]}" -b "$branch" "$path" "$from_ref" >&2; then
+    set -- -b "$branch" "$path" "$from_ref"
+    [ "$force" -eq 1 ] && set -- --force "$@"
+    case "$track_mode" in
+      remote) set -- --track "$@" ;;
+      none) set -- --no-track "$@" ;;
+    esac
+    if ! git worktree add "$@" >&2; then
       log_error "Failed to create worktree: git worktree add failed"
       return 1
     fi
@@ -256,10 +258,10 @@ remove_worktree() {
   local path="$1"
   local force="$2"
 
-  local args=()
-  [ "$force" -eq 1 ] && args+=("--force")
+  set -- "$path"
+  [ "$force" -eq 1 ] && set -- --force "$@"
 
-  if git worktree remove "${args[@]}" "$path"; then
+  if git worktree remove "$@"; then
     log_info "Worktree removed from git"
     # Sometimes empty dirs remain
     [ -d "$path" ] && rmdir "$path" 2>/dev/null || true

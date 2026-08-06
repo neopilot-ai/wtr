@@ -6,7 +6,7 @@ setup() {
   # Mock opencode
   mkdir -p "$TMP/bin"
   echo "#!/bin/bash" > "$TMP/bin/opencode"
-  echo "echo 'MOCK_OPENCODE_CALLED with args: \$*'" >> "$TMP/bin/opencode"
+  echo "echo \"MOCK_OPENCODE_CALLED with args: \$*\"" >> "$TMP/bin/opencode"
   chmod +x "$TMP/bin/opencode"
   export PATH="$TMP/bin:$PATH"
 

@@ -196,66 +196,8 @@ main() {
     esac
 }
 
+
 # Run main function
-main "$@"            # Call Gemini API
-            response=$(gemini_api '{
-                "contents": [{
-                    "parts": [{"text": "'"$prompt"'"}]
-                }]
-            }')
-            
-            # Extract and display the response
-            echo "🤖 Gemini's suggestions:"
-            echo "$response" | jq -r '.candidates[0].content.parts[0].text' 2>/dev/null || echo "Error parsing response"
-            
-            # Open browser to Gemini's web interface
-            if command -v xdg-open >/dev/null; then
-                xdg-open "https://gemini.google.com/app" >/dev/null 2>&1 &
-            elif command -v open >/dev/null; then
-                open "https://gemini.google.com/app" >/dev/null 2>&1 &
-            fi
-        else
-            echo "Worktree path does not exist: $worktree_path" >&2
-            exit 1
-        fi
-        ;;
-        
-    analyze)
-        # More detailed analysis of the codebase
-        if [ -d "$worktree_path" ]; then
-            cd "$worktree_path" || exit 1
-            
-            # Get code statistics
-            file_count=$(find . -type f -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.sh" | wc -l)
-            loc=$(find . -type f -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.sh" | xargs wc -l 2>/dev/null | tail -n 1 | awk '{print $1}')
-            
-            # Prepare analysis prompt
-            prompt="Analyze this codebase and provide insights:\n"
-            prompt+="- Files: $file_count\n"
-            prompt+="- Lines of code: $loc\n\n"
-            prompt+="Project structure:\n$(find . -type d -maxdepth 2 | sort | sed 's|[^/]*/|- |g' | head -n 20)\n\n"
-            
-            if [ -f "package.json" ]; then
-                prompt+="Dependencies:\n$(jq -r '.dependencies | to_entries[] | .key + ": " + .value' package.json 2>/dev/null | head -n 10)\n\n"
-            fi
-            
-            prompt+="What are the main components of this project? Any potential improvements or areas of concern?"
-            
-            # Call Gemini API
-            response=$(gemini_api '{
-                "contents": [{
-                    "parts": [{"text": "'"$prompt"'"}]
-                }]
-            }')
-            
-            echo "📊 Codebase Analysis:"
-            echo "$response" | jq -r '.candidates[0].content.parts[0].text' 2>/dev/null || echo "Error parsing response"
-        fi
-        ;;
-        
-    *)
-        echo "Unknown command: $cmd" >&2
-        echo "Available commands: open, analyze" >&2
-        exit 1
-        ;;
-esac
+if [ $# -gt 0 ]; then
+    main "$@"
+fi

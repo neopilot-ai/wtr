@@ -148,21 +148,8 @@ main() {
     esac
 }
 
-# Run main function
-main "$@"
-    ],
-    "settings": {
-        "zed.workspaceName": "$(basename "$worktree_path")"
-    }
-}
-WORKSPACE_EOF
-        fi
 
-        # Open Zed with the workspace
-        "$zed_bin" "$worktree_path" >/dev/null 2>&1 &
-        ;;
-    *)
-        echo "Unknown command: $cmd" >&2
-        exit 1
-        ;;
-esac
+# Run main function
+if [ $# -gt 0 ]; then
+    main "$@"
+fi

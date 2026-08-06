@@ -124,5 +124,8 @@ main() {
     esac
 }
 
+
 # Run main function
-main "$@"
+if [ $# -gt 0 ]; then
+    main "$@"
+fi

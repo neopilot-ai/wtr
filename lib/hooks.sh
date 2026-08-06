@@ -33,7 +33,8 @@ run_hooks_in() {
   config_hooks=$(cfg_get_all "wtr.hook.$hook_name")
 
   # Execute
-  for hook in "${hook_files[@]}"; do
+  for hook in "${hook_files[@]:-}"; do
+    [ -z "$hook" ] && continue
     log_info "Running hook: $(basename "$hook")"
     (
       # Export standard env vars

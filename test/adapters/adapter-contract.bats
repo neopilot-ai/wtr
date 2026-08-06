@@ -16,14 +16,13 @@ setup() {
 
 # Test that editor adapters source correctly
 @test "adapter: editor adapter (cursor) can be sourced" {
-  source "$WTR_DIR/adapters/editor/cursor.sh" || true
-  # If it sources without error, contract is partially met
-  [ -z "$?" ] || [ "$?" -eq 0 ]
+  source "$WTR_DIR/adapters/editor/cursor.sh"
+  [ $? -eq 0 ]
 }
 
 @test "adapter: ai adapter (claude) can be sourced" {
-  source "$WTR_DIR/adapters/ai/claude.sh" || true
-  [ -z "$?" ] || [ "$?" -eq 0 ]
+  source "$WTR_DIR/adapters/ai/claude.sh"
+  [ $? -eq 0 ]
 }
 
 # Test adapter naming pattern

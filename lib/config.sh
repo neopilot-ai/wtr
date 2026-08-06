@@ -17,7 +17,11 @@ cfg_get_all() {
 
   # 1. Check git config
   local result
-  result=$(git config "${args[@]}" --get-all "$key" 2>/dev/null || true)
+  if [ ${#args[@]} -gt 0 ]; then
+    result=$(git config "${args[@]}" --get-all "$key" 2>/dev/null || true)
+  else
+    result=$(git config --get-all "$key" 2>/dev/null || true)
+  fi
 
   # 2. Check local file-based config if provided (.wtrconfig)
   if [ -n "$file_key" ] && [ -f ".wtrconfig" ]; then
@@ -108,7 +112,11 @@ cfg_list() {
   local args=()
   [ "$scope" != "auto" ] && args+=("--$scope")
 
-  git config "${args[@]}" --list | grep "^wtr\." || true
+  if [ ${#args[@]} -gt 0 ]; then
+    git config "${args[@]}" --list | grep "^wtr\." || true
+  else
+    git config --list | grep "^wtr\." || true
+  fi
 
   # Also show .wtrconfig if exists and not restricted by scope
   if [ "$scope" = "auto" ] || [ "$scope" = "local" ]; then

@@ -3,6 +3,9 @@
 
 set -e
 
+# Path to wtr (compute before changing directories)
+BOP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/wtr"
+
 # Setup test environment
 TMP=$(mktemp -d)
 echo "Using temporary repo: $TMP"
@@ -13,9 +16,6 @@ git config user.name "Test User"
 echo "initial content" > README.md
 git add README.md
 git commit -m "initial commit"
-
-# Path to wtr
-BOP="/Users/neopilot/Projects/wtr/bin/wtr"
 
 echo "--- Testing: config set/get ---"
 "$BOP" config set wtr.test.key "hello-world" --local
@@ -28,6 +28,7 @@ else
 fi
 
 echo "--- Testing: create (new) worktree ---"
+"$BOP" config set wtr.worktrees.dir ".worktrees" --local
 "$BOP" create test-feature --yes
 if [ -d ".worktrees/test-feature" ]; then
   echo "[PASS] create worktree directory"

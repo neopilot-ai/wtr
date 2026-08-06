@@ -4,12 +4,17 @@
 
 # Test fixtures
 @test "MCP server responds to initialize request" {
+  # MCP server requires Bash 4.0+ (associative arrays); skip on older shells
+  if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+    skip "MCP server requires Bash 4.0+ (current: $BASH_VERSION)"
+  fi
+
   # Create a minimal initialize request
   local request='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
   
   # Send to server and capture response (simulate with direct execution)
   local response
-  response=$(echo "$request" | bash "${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh" 2>/dev/null | head -1)
+  response=$(echo "$request" | bash "${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh" 2>/dev/null | head -1)
   
   # Verify response contains required fields
   if command -v jq >/dev/null 2>&1; then
@@ -21,7 +26,7 @@
 
 @test "MCP server rejects invalid JSON" {
   local response
-  response=$(echo 'not json at all' | bash "${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh" 2>&1 | head -1)
+  response=$(echo 'not json at all' | bash "${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh" 2>&1 | head -1)
   
   if [[ "$response" =~ "Parse error" ]]; then
     skip "Response captured, parse error as expected"
@@ -39,7 +44,7 @@
   
   # This should be handled gracefully
   local response
-  response=$(echo "$request" | bash "${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh" 2>&1 || echo '{}')
+  response=$(echo "$request" | bash "${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh" 2>&1 || echo '{}')
   
   # Verify no crash or buffer overflow
   [ -n "$response" ]
@@ -47,7 +52,7 @@
 
 @test "MCP server validates identifier format" {
   # Test get_string_param with invalid identifier
-  local script="${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh"
+  local script="${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh"
   
   # Verify the script contains validation functions
   grep -q "validate_identifier" "$script"
@@ -58,7 +63,7 @@
   local request='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"wtr_rm","arguments":{"identifier":"feature/test","yes":false}}}'
   
   local response
-  response=$(echo "$request" | bash "${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh" 2>&1 | head -1)
+  response=$(echo "$request" | bash "${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh" 2>&1 | head -1)
   
   # Should contain error about requires yes
   if command -v jq >/dev/null 2>&1; then
@@ -71,7 +76,7 @@
 }
 
 @test "MCP server has parameter validation helpers" {
-  local script="${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh"
+  local script="${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh"
   
   # Verify validation functions exist
   grep -q "validate_branch_name" "$script"
@@ -81,7 +86,7 @@
 }
 
 @test "MCP server includes audit logging" {
-  local script="${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh"
+  local script="${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh"
   
   # Verify logging function exists
   grep -q "log_audit" "$script"
@@ -89,7 +94,7 @@
 }
 
 @test "MCP server has timeout protection" {
-  local script="${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh"
+  local script="${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh"
   
   # Verify timeout handling
   grep -q "run_with_timeout" "$script"
@@ -97,7 +102,7 @@
 }
 
 @test "MCP server handles errors gracefully" {
-  local script="${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh"
+  local script="${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh"
   
   # Verify error handling
   grep -q "send_error" "$script"
@@ -105,28 +110,28 @@
 }
 
 @test "MCP server validates bash version" {
-  local script="${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh"
+  local script="${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh"
   
   # Should check for Bash 4.0+
   grep -q "BASH_VERSINFO" "$script"
 }
 
 @test "MCP server properly escapes JSON" {
-  local script="${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh"
+  local script="${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh"
   
   # Verify JSON escaping
   grep -q "jq -Rs" "$script"
 }
 
 @test "MCP server protects against command injection in patterns" {
-  local script="${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh"
+  local script="${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh"
   
   # Verify pattern validation includes injection attack prevention
   grep -q 'pattern.*injection\|pattern.*rm\|validate_pattern' "$script"
 }
 
 @test "MCP server supports debug mode" {
-  local script="${BATS_TEST_DIRNAME}/../mcp/wtr-server.sh"
+  local script="${BATS_TEST_DIRNAME}/../../mcp/wtr-server.sh"
   
   # Debug mode should be configurable
   grep -q "MCP_DEBUG" "$script"

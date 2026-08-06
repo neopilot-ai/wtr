@@ -33,6 +33,42 @@ dispatch_command() {
     exec)
       cmd_exec "$@"
       ;;
+    ai)
+      cmd_ai "$@"
+      ;;
+    editor)
+      cmd_editor "$@"
+      ;;
+    go)
+      cmd_go "$@"
+      ;;
+    copy)
+      cmd_copy "$@"
+      ;;
+    clean)
+      cmd_clean "$@"
+      ;;
+    sync)
+      cmd_sync "$@"
+      ;;
+    hooks)
+      cmd_hooks "$@"
+      ;;
+    backup)
+      cmd_backup "$@"
+      ;;
+    restore)
+      cmd_restore "$@"
+      ;;
+    dashboard)
+      cmd_dashboard "$@"
+      ;;
+    ui)
+      cmd_ui "$@"
+      ;;
+    adapter)
+      cmd_adapter "$@"
+      ;;
     doctor)
       cmd_doctor "$@"
       ;;
