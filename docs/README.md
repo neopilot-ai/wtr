@@ -13,6 +13,11 @@ Welcome to the `wtr` documentation. Here you can find detailed information on ho
 - [**Editor & AI Adapters**](ADAPTERS.md)
   - Information on supported editors and AI tools.
   - How to create your own adapters.
+- [**Architecture**](ARCHITECTURE.md)
+  - Technical architecture and design decisions.
+  - Module structure and data flow.
+- [**Release Process**](releases/)
+  - Release checklist, notes, and version history.
 - [**Troubleshooting**](troubleshooting.md)
   - Common issues and how to resolve them.
   - Platform-specific tips for macOS, Linux, and Windows.

@@ -1,0 +1,48 @@
+# Dependabot configuration for automated dependency updates
+version: 2
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Docker (if Dockerfile exists)
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "ci"
+    groups:
+      docker-base:
+        patterns:
+          - "docker.io/*"
+          - "ghcr.io/*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Note: This is a pure Bash project with no npm/cargo/pip dependencies.
+  # Dependabot will only update GitHub Actions and Docker base images.

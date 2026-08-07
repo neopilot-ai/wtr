@@ -1,0 +1,35 @@
+# Code Owners
+#
+# These users will be automatically requested for review when
+# someone opens a pull request that modifies files they own.
+
+# Global owners - review all changes
+* @neopilot-ai/core-team
+
+# Core CLI
+/bin/wtr @neopilot-ai/core-team
+/lib/ @neopilot-ai/core-team
+/bin/git-wtr @neopilot-ai/core-team
+
+# Adapters
+/adapters/ @neopilot-ai/adapters-team
+
+# Completions
+/completions/ @neopilot-ai/core-team
+
+# Tests
+/test/ @neopilot-ai/qa-team
+
+# Documentation
+/docs/ @neopilot-ai/docs-team
+/README.md @neopilot-ai/docs-team
+
+# CI/CD
+/.github/workflows/ @neopilot-ai/ci-team
+
+# Scripts
+/scripts/ @neopilot-ai/core-team
+/install.sh @neopilot-ai/core-team
+
+# Configuration
+/.github/ @neopilot-ai/core-team
