@@ -1,0 +1,80 @@
+# Example wtr configuration
+# Copy this to your repository and customize as needed
+
+# === Worktree Settings ===
+
+# Base directory for worktrees
+# Default: <repo-name>-worktrees (sibling directory)
+#
+# Relative paths are resolved from repository root
+# Absolute paths are used as-is
+# Tilde (~) expands to home directory
+#
+# Examples:
+# wtr.worktrees.dir = .worktrees              # Inside repo (add to .gitignore!)
+# wtr.worktrees.dir = ~/worktrees/my-project  # In home directory
+# wtr.worktrees.dir = /tmp/worktrees          # Absolute path
+#
+# wtr.worktrees.dir = my-worktrees
+
+# Prefix for worktree directory names (folders named: {prefix}{branch-name})
+# Default: "" (empty, folders named after branch)
+# wtr.worktrees.prefix = dev-
+
+# Default branch to create new branches from
+# Options: auto (detect from origin/HEAD), main, master, or any branch name
+# Default: auto
+# wtr.defaultBranch = main
+
+# === Editor Settings ===
+
+# Default editor to open worktrees
+# Options: cursor, vscode, zed, or none
+# Default: none
+# wtr.editor.default = cursor
+
+# === AI Tool Settings ===
+
+# Default AI coding tool
+# Options: aider, auggie, claude, codex, continue, copilot, cursor, gemini, opencode, none
+# Default: none
+# wtr.ai.default = claude
+
+# === File Copying ===
+
+# Files to copy to new worktrees (glob patterns, can specify multiple)
+# Default: none
+# wtr.copy.include = **/.env.example
+# wtr.copy.include = **/CLAUDE.md
+# wtr.copy.include = apps/*/run.sh
+
+# Files to exclude from copying (glob patterns)
+# wtr.copy.exclude = **/.env
+# wtr.copy.exclude = **/.env.local
+# wtr.copy.exclude = **/secrets.json
+
+# === Hooks ===
+
+# Commands to run after creating a worktree (can specify multiple, run in order)
+# wtr.hook.postCreate = npm install
+# wtr.hook.postCreate = npm run build
+
+# Commands to run before removing a worktree (abort on failure, use --force to skip)
+# wtr.hook.preRemove = npm run cleanup
+
+# Commands to run after removing a worktree
+# wtr.hook.postRemove = echo "Cleaned up worktree"
+
+# === How to Apply This Config ===
+
+# For local repository only:
+# git config --local wtr.editor.default cursor
+# git config --local --add wtr.copy.include "**/.env.example"
+# git config --local --add wtr.hook.postCreate "pnpm install"
+
+# For all repositories (global):
+# git config --global wtr.editor.default vscode
+
+# Or use wtr's config command:
+# wtr config set wtr.editor.default cursor
+# wtr config set wtr.editor.default cursor --global
