@@ -15,7 +15,7 @@ if [ -n "${WTR_DEBUG:-}" ]; then
 fi
 
 # Version
-WTR_VERSION="2.11.1"
+WTR_VERSION="2.11.2"
 
 # Find the script directory (resolve symlinks; allow env override)
 resolve_script_dir() {
