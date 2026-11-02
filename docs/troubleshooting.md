@@ -1,108 +1,250 @@
 # Troubleshooting Guide
 
-This guide provides solutions for common issues and answers to frequently asked questions about wtr.
+> Solutions for common issues with wtr
+
+[Back to README](../README.md) | [Configuration](configuration.md) | [Advanced Usage](advanced-usage.md)
+
+---
+
+## Table of Contents
+
+- [Installation Issues](#installation-issues)
+- [Worktree Creation Issues](#worktree-creation-issues)
+- [Editor Issues](#editor-issues)
+- [File Copying Issues](#file-copying-issues)
+- [Platform Support](#platform-support)
+- [Architecture Overview](#architecture-overview)
+- [Reliability & Testing Status](#reliability--testing-status)
+
+---
 
 ## Installation Issues
 
-### `git wtr` is not a git command
-**Symptoms:** Running `git wtr <cmd>` returns `git: 'wtr' is not a git command.`
+### "git: 'wtr' is not a git command"
 
-**Solution:**
-1.  Verify the installation path: `ls -la ~/.local/bin/git-wtr`.
-2.  Ensure `~/.local/bin` is in your `PATH`.
-3.  On macOS, you may need to restart your terminal or run `source ~/.zshrc`.
-4.  Try running the direct binary to see if it works: `~/.wtr/bin/wtr --version`.
-
-### `Permission denied` during installation
-**Symptoms:** `Permission denied` error when running `./install.sh`.
-
-**Solution:**
-1.  Make sure the script is executable: `chmod +x install.sh`.
-2.  If the script tries to create symlinks in `/usr/local/bin` and fails, it should fallback to `~/.local/bin`. Ensure you have write permissions for your home directory.
-
-## Worktree Issues
-
-### `Fatal: ... already exists`
-**Symptoms:** Git fails to create a worktree because a directory or branch already exists.
-
-**Solution:**
-1.  Check if you have an old worktree folder that wasn't properly removed: `git worktree prune`.
-2.  If you want to use the same branch for a different purpose, use the `--force` and `--name` flags:
-    `git wtr new feature-abc --force --name variant-2`
-
-### Branch names with slashes
-**Symptoms:** You want to create a worktree for `feature/login` but the folder name looks strange or fails.
-
-**Solution:**
-wtr automatically sanitizes branch names by replacing `/` with `-`. A branch named `feature/login` will be placed in a folder named `feature-login`. This is by design to ensure cross-platform compatibility.
-
-### Worktrees inside the repository
-**Symptoms:** You created a worktree and now `git status` shows it as an untracked directory.
-
-**Solution:**
-By default, wtr tries to create worktrees as **sibling directories** (e.g., `../your-repo-worktrees/`). If you prefer them inside your repo (e.g., in a `.worktrees/` folder), you must add that folder to your `.gitignore`:
-```bash
-echo ".worktrees/" >> .gitignore
-git wtr config set wtr.worktrees.dir ".worktrees" --local
-```
-
-## Tool Integration (Editor/AI)
-
-### Editor/AI tool fails to open
-**Symptoms:** Configured tool doesn't launch, but no error is shown.
-
-**Solution:**
-1.  Run `git wtr doctor` to check if the tool is in your `PATH`.
-2.  If you are using a custom editor command, ensure it works from the shell directly.
-3.  Check if you have the correct adapter name. Run `git wtr adapter` to see available options.
-
-### VS Code/Cursor workspace isn't used
-**Symptoms:** VS Code opens the folder but doesn't load the `.code-workspace` file.
-
-**Solution:**
-1.  Ensure the `.code-workspace` file is in the root of your repository.
-2.  Check your config: `git wtr config get wtr.editor.workspace`. It should be empty (for auto-detection) or point to the correct relative path.
-
-### AI Tool API Keys
-**Symptoms:** Errors like `CLAUDE_API_KEY not set` or `GEMINI_API_KEY not set`.
-
-**Solution:**
-1.  Most AI adapters require an API key to be set in your environment.
-2.  You can export them in your shell profile (`.zshrc` or `.bash_profile`):
-    ```bash
-    export GEMINI_API_KEY="your-key-here"
-    export CLAUDE_API_KEY="your-key-here"
-    ```
-3.  Alternatively, you can create a config file at `~/.config/neopilot/gemini` or `~/.config/neopilot/claude` with the following content:
-    ```bash
-    GEMINI_API_KEY="your-key-here"
-    ```
-
-## Git Version Issues
-
-### "Unknown option: --show-current"
-**Symptoms:** Errors relating to `branch --show-current`.
-
-**Solution:**
-This occurs on older versions of Git (pre-2.22). wtr includes fallbacks for these versions, but ensure your Git is at least version 2.5.0. Updating Git is highly recommended for the best experience.
-
-## Debugging
-
-If you encounter an issue not listed here, you can enable debug logging to see what's happening under the hood:
+This error means `git-wtr` is not in your PATH. Verify installation:
 
 ```bash
-WTR_DEBUG=1 git wtr <command>
+# Check if symlink exists (if neither exists, re-run ./install.sh)
+ls -la /usr/local/bin/git-wtr 2>/dev/null || ls -la ~/bin/git-wtr 2>/dev/null
+
+# Check if git-wtr is findable
+which git-wtr
+
+# Check your PATH includes the install location
+echo $PATH | tr ':' '\n' | grep -E "(local/bin|/bin$)"
 ```
 
-You can also specify a log file for persistent history:
+**Fix:** Re-run `./install.sh` or manually add the symlink location to your PATH:
+
 ```bash
-export WTR_LOG_FILE="/tmp/wtr.log"
-git wtr new test-debug
+# Add to ~/.zshrc or ~/.bashrc:
+export PATH="/usr/local/bin:$PATH"
+# Or if using ~/bin:
+export PATH="$HOME/bin:$PATH"
 ```
+
+Then restart your terminal.
+
+---
+
+## Worktree Creation Issues
+
+### Worktree Creation Fails
+
+```bash
+# Ensure you've fetched latest refs
+git fetch origin
+
+# Check if branch already exists
+git branch -a | grep your-branch
+
+# Manually specify tracking mode
+git wtr new test --track remote
+```
+
+### Branch Already Checked Out
+
+If you get an error about a branch already being checked out, the branch exists in another worktree. Options:
+
+1. Use a different branch name
+2. Remove the existing worktree first: `git wtr rm <branch>`
+3. Use `--force --name <suffix>` to create a second worktree on the same branch (advanced)
+
+---
+
+## Editor Issues
+
+### Editor Not Opening
+
+```bash
+# Verify editor command is available
+command -v cursor  # or: code, zed
+
+# Check configuration
+git wtr config get wtr.editor.default
+
+# Try opening again
+git wtr editor my-feature
+```
+
+### Wrong Editor Opens
+
+Check your configuration precedence:
+
+```bash
+# Check local config
+git config --local wtr.editor.default
+
+# Check global config
+git config --global wtr.editor.default
+
+# Check .wtrconfig file
+cat .wtrconfig 2>/dev/null | grep editor
+```
+
+---
+
+## File Copying Issues
+
+### Files Not Being Copied
+
+```bash
+# Check your patterns
+git wtr config get wtr.copy.include
+
+# Test patterns with find
+cd /path/to/repo
+find . -path "**/.env.example"
+
+# Check if patterns are being excluded
+git wtr config get wtr.copy.exclude
+```
+
+### Pattern Syntax Issues
+
+- Use `**` for recursive matching: `**/.env.example`
+- Use `*` for single-level wildcard: `*.config.js`
+- Patterns are relative to repository root
+
+---
+
+## Platform Support
+
+| Platform    | Status              | Notes                           |
+| ----------- | ------------------- | ------------------------------- |
+| **macOS**   | Full support        | Ventura+                        |
+| **Linux**   | Full support        | Ubuntu, Fedora, Arch, etc.      |
+| **Windows** | Via Git Bash or WSL | Native PowerShell not supported |
+
+### Platform-Specific Notes
+
+**macOS:**
+
+- GUI opening uses `open`
+- Terminal spawning uses iTerm2/Terminal.app
+- Bash 3.2 ships by default (works, but 4.0+ recommended)
+
+**Linux:**
+
+- GUI opening uses `xdg-open`
+- Terminal spawning uses gnome-terminal/konsole
+- Most distros have Bash 4.0+
+
+**Windows:**
+
+- GUI opening uses `start`
+- Requires Git Bash or WSL
+- PowerShell is not supported (use Git Bash instead)
+
+---
+
+## Architecture Overview
+
+```
+wtr/
+├── bin/
+│   ├── git-wtr         # Entry point: sources lib/*.sh, dispatches commands
+│   └── wtr             # Development wrapper (exec bin/git-wtr)
+├── lib/                 # Core libraries
+│   ├── core.sh         # Git worktree operations
+│   ├── config.sh       # Configuration management
+│   ├── platform.sh     # OS-specific code
+│   ├── ui.sh           # User interface
+│   ├── copy.sh         # File copying
+│   ├── hooks.sh        # Hook execution
+│   ├── args.sh         # Argument parsing
+│   ├── provider.sh     # GitHub/GitLab detection
+│   ├── adapters.sh     # Editor & AI adapter registry
+│   ├── launch.sh       # Editor & AI launching
+│   └── commands/       # One file per subcommand
+├── adapters/           # Editor & AI tool plugins
+│   ├── editor/
+│   └── ai/
+├── completions/        # Shell completions
+└── templates/          # Example configs
+```
+
+---
+
+## Reliability & Testing Status
+
+**Current Status:** Production-ready for daily use
+
+### Tested Platforms
+
+| Platform    | Versions                                                     |
+| ----------- | ------------------------------------------------------------ |
+| **macOS**   | Ventura (13.x), Sonoma (14.x), Sequoia (15.x)                |
+| **Linux**   | Ubuntu 22.04/24.04, Fedora 39+, Arch Linux                   |
+| **Windows** | Git Bash (tested), WSL2 (tested), PowerShell (not supported) |
+
+### Git Versions
+
+| Version       | Support Level                         |
+| ------------- | ------------------------------------- |
+| Git 2.25+     | Recommended                           |
+| Git 2.22+     | Full support                          |
+| Git 2.17-2.21 | Basic support (some features limited) |
+| Git < 2.17    | Not supported                         |
+
+### Known Limitations
+
+- Shell completions require bash-completion v2+ for Bash
+- Some AI adapters require recent tool versions (see adapter docs)
+- Native PowerShell is not supported; use Git Bash or WSL2
+
+### Testing Approach
+
+- **Automated tests**: BATS test suite (`tests/`) covers core functions
+- **CI**: ShellCheck linting + BATS tests run on all PRs
+- **Manual testing**: End-to-end workflows tested across macOS, Linux, WSL2
+- **Adapter coverage**: Built-in and generic `PATH` launch behavior is covered by BATS; product-specific behavior depends on installed tool versions
+- Community testing appreciated - please report issues!
+
+### Experimental Features
+
+| Feature                                  | Status                              |
+| ---------------------------------------- | ----------------------------------- |
+| `--force` flag for same-branch worktrees | Use with caution                    |
+| Windows PowerShell support               | Not supported (use Git Bash or WSL) |
+
+---
 
 ## Getting Help
 
-If you're still stuck:
-1.  Run `git wtr help` for a list of all commands and options.
-2.  Check the documentation in `docs/`.
-3.  Search or open an issue on the [GitHub repository](https://github.com/neopilot-ai/wtr).
+If you're still having issues:
+
+1. Run `git wtr doctor` to check your setup
+2. Re-run with `WTR_DEBUG=1 git wtr <command>`; an unexpected failure prints `ERROR at <file>:<line> in <function>()`. Handled errors, such as a missing worktree, are reported normally and add no such line.
+3. For a full trace, run the script directly: `bash -x "$(command -v git-wtr)" <command>`
+4. [Open an issue](https://github.com/neopilot-ai/wtr/issues) with:
+   - Your OS and version
+   - Git version (`git --version`)
+   - Bash version (`bash --version`)
+   - The command you ran
+   - The error message
+
+---
+
+[Back to README](../README.md) | [Configuration](configuration.md) | [Advanced Usage](advanced-usage.md)

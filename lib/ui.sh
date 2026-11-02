@@ -1,152 +1,147 @@
-# ui.sh - UI helpers
+#!/usr/bin/env bash
+# UI utilities for logging and prompting
 
-# Prompt for a single line of input
-prompt_input() {
-  local prompt="$1"
-  local ans
-  # Using stderr for prompt so stdout remains clean for assignment
-  printf "%s " "$prompt" >&2
-  read -r ans
-  echo "$ans"
+# ── Color support ────────────────────────────────────────────────────────────
+# Color variables — empty when disabled, ANSI codes when enabled.
+# Pre-computed once at source time; zero per-call overhead.
+_UI_GREEN="" _UI_YELLOW="" _UI_RED="" _UI_CYAN=""
+_UI_BOLD="" _UI_RESET=""
+_UI_BOLD_STDOUT="" _UI_RESET_STDOUT=""
+
+# Check if color output should be enabled for a file descriptor
+# Respects: NO_COLOR (no-color.org), WTR_COLOR env, TTY detection
+# Usage: _ui_should_color <fd>
+_ui_should_color() {
+  [ -n "${NO_COLOR:-}" ] && return 1
+  case "${WTR_COLOR:-auto}" in
+    always) return 0 ;;
+    never)  return 1 ;;
+  esac
+  [ -t "$1" ]
 }
 
-# Prompt for a yes/no question
+_ui_enable_color() {
+  _UI_GREEN=$(printf '\033[0;32m')
+  _UI_YELLOW=$(printf '\033[0;33m')
+  _UI_RED=$(printf '\033[0;31m')
+  _UI_CYAN=$(printf '\033[0;36m')
+  _UI_BOLD=$(printf '\033[1m')
+  _UI_RESET=$(printf '\033[0m')
+  _UI_BOLD_STDOUT="$_UI_BOLD"
+  _UI_RESET_STDOUT="$_UI_RESET"
+}
+
+_ui_disable_color() {
+  _UI_GREEN="" _UI_YELLOW="" _UI_RED="" _UI_CYAN=""
+  _UI_BOLD="" _UI_RESET=""
+  _UI_BOLD_STDOUT="" _UI_RESET_STDOUT=""
+}
+
+# Phase 1: auto-detect color at source time (before config.sh is available)
+if _ui_should_color 2; then
+  _UI_GREEN=$(printf '\033[0;32m')
+  _UI_YELLOW=$(printf '\033[0;33m')
+  _UI_RED=$(printf '\033[0;31m')
+  _UI_CYAN=$(printf '\033[0;36m')
+  _UI_BOLD=$(printf '\033[1m')
+  _UI_RESET=$(printf '\033[0m')
+fi
+if _ui_should_color 1; then
+  _UI_BOLD_STDOUT=$(printf '\033[1m')
+  _UI_RESET_STDOUT=$(printf '\033[0m')
+fi
+
+# Phase 2: re-evaluate after config.sh is available
+# Called from bin/wtr after config.sh is sourced
+_ui_apply_color_config() {
+  # NO_COLOR always wins, regardless of config
+  if [ -n "${NO_COLOR:-}" ]; then
+    _ui_disable_color
+    return 0
+  fi
+  local color_mode
+  color_mode=$(cfg_get "wtr.ui.color") || true
+  [ -z "$color_mode" ] && return 0
+  case "$color_mode" in
+    always) _ui_enable_color ;;
+    never)  _ui_disable_color ;;
+  esac
+}
+
+# ── Logging functions ────────────────────────────────────────────────────────
+
+log_info() {
+  printf "%s[OK]%s %s\n" "$_UI_GREEN" "$_UI_RESET" "$*" >&2
+}
+
+log_warn() {
+  printf "%s[!]%s %s\n" "$_UI_YELLOW" "$_UI_RESET" "$*" >&2
+}
+
+log_error() {
+  printf "%s[x]%s %s\n" "$_UI_RED" "$_UI_RESET" "$*" >&2
+}
+
+log_step() {
+  printf "%s==>%s %s\n" "${_UI_BOLD}${_UI_CYAN}" "$_UI_RESET" "$*" >&2
+}
+
+log_question() {
+  printf "%s[?]%s %s" "$_UI_BOLD_STDOUT" "$_UI_RESET_STDOUT" "$*"
+}
+
+# ── Help and prompts ─────────────────────────────────────────────────────────
+
+# Show help for the current command and exit (called by parse_args on --help)
+show_command_help() {
+  cmd_help "${_WTR_CURRENT_COMMAND:-}"
+  exit 0
+}
+
+# Prompt for yes/no confirmation
+# Usage: prompt_yes_no "Question text" [default]
+# Returns: 0 for yes, 1 for no
 prompt_yes_no() {
-  local prompt="$1"
-  local ans
-  while true; do
-    printf "%s [y/N]: " "$prompt" >&2
-    read -r ans
-    case "$ans" in
-      [Yy]*) return 0 ;;
-      [Nn]*|"") return 1 ;;
-      *) echo "Please answer yes or no." >&2 ;;
-    esac
-  done
-}
+  local question="$1"
+  local default="${2:-n}"
+  local prompt_suffix="[y/N]"
 
-# Open a path in the system's file browser
-open_in_gui() {
-  local path="$1"
-  case "$(detect_os)" in
-    macos)
-      open "$path"
+  if [ "$default" = "y" ]; then
+    prompt_suffix="[Y/n]"
+  fi
+
+  log_question "$question $prompt_suffix "
+  read -r reply
+
+  case "$reply" in
+    [yY]|[yY][eE][sS])
+      return 0
       ;;
-    linux)
-      if command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "$path"
-      else
-        log_warn "xdg-open not found, cannot open GUI"
-      fi
+    [nN]|[nN][oO])
+      return 1
       ;;
-    windows)
-      start "" "$path"
+    "")
+      [ "$default" = "y" ] && return 0 || return 1
       ;;
     *)
-      log_warn "Unsupported platform for opening GUI"
+      [ "$default" = "y" ] && return 0 || return 1
       ;;
   esac
 }
 
-# Print a formatted table
-# Expects column widths as first arg (comma-separated), then data lines
-# Each data line should be tab-separated
-print_table() {
-  local widths_str="$1"
-  shift
-  local IFS=','
-  read -ra widths <<< "$widths_str"
-  
-  # Print header
-  local line="$1"
-  shift
-  local IFS=$'\t'
-  read -ra cols <<< "$line"
-  
-  printf "${BOLD}"
-  for i in "${!cols[@]}"; do
-    printf "%-${widths[$i]}s  " "${cols[$i]}"
-  done
-  printf "${RESET}\n"
-  
-  # Print separator
-  for i in "${!widths[@]}"; do
-    printf "%-${widths[$i]}s  " "$(printf '%.0s-' $(seq 1 "${widths[$i]}"))"
-  done
-  printf "\n"
-  
-  # Print rows
-  while [ $# -gt 0 ]; do
-    line="$1"
-    shift
-    local IFS=$'\t'
-    read -ra cols <<< "$line"
-    for i in "${!cols[@]}"; do
-      printf "%-${widths[$i]}b  " "${cols[$i]}"
-    done
-    printf "\n"
-  done
-}
+# Prompt for text input
+# Usage: prompt_input "Question text" [variable_name]
+# If variable_name provided, sets it, otherwise echoes result
+prompt_input() {
+  local question="$1"
+  local var_name="$2"
 
-# Prompt to select a worktree from the list
-# Returns the selected identifier
-prompt_select_worktree() {
-  local header="${1:-Select worktree:}"
-  local repo_root base_dir prefix
-  repo_root=$(discover_repo_root) || return 1
-  base_dir=$(resolve_base_dir "$repo_root")
-  prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
+  log_question "$question "
+  read -r input
 
-  # Get list of worktrees (ID\tBranch\tPath)
-  local list=()
-  local i=1
-  
-  # Always include main repo
-  local main_branch
-  main_branch=$(current_branch "$repo_root")
-  list+=("1\t$main_branch\t(main repo)")
-  
-  if [ -d "$base_dir" ]; then
-    while read -r dir; do
-      local branch folder
-      branch=$(current_branch "$dir")
-      folder=$(basename "$dir")
-      # Strip prefix from folder to get ID
-      local id="${folder#$prefix}"
-      list+=("$id\t$branch\t$folder")
-    done < <(find "$base_dir" -maxdepth 1 -type d -name "${prefix}*" 2>/dev/null)
-  fi
-
-  if command -v fzf >/dev/null 2>&1; then
-    local selected
-    selected=$(printf "%s\n" "${list[@]}" | column -t -s $'\t' | fzf --header "$header" --height 40% --reverse --cycle)
-    [ -z "$selected" ] && return 1
-    echo "$selected" | awk '{print $1}'
+  if [ -n "$var_name" ]; then
+    printf -v "$var_name" '%s' "$input"
   else
-    echo "$header" >&2
-    local j=1
-    for item in "${list[@]}"; do
-      local id branch desc
-      id=$(echo "$item" | cut -f1)
-      branch=$(echo "$item" | cut -f2)
-      desc=$(echo "$item" | cut -f3)
-      printf "%2d) %-15s %s\n" "$j" "$branch" "$desc" >&2
-      j=$((j+1))
-    done
-    
-    local choice
-    choice=$(prompt_input "Choice [1-$((j-1))]:")
-    [ -z "$choice" ] && return 1
-    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -lt "$j" ]; then
-      echo "${list[$((choice-1))]}" | cut -f1
-    else
-      log_error "Invalid choice"
-      return 1
-    fi
+    printf "%s" "$input"
   fi
-}
-
-# Legacy alias
-confirm() {
-  prompt_yes_no "$1"
 }

@@ -2,298 +2,318 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org).
 
-## [2.1.0] - 2025-02-05
-
-### 🎉 Major Improvements
-
-This release includes substantial enhancements across security, documentation, examples, and the adapter system.
-
-### Added
-
-#### Core System
-- **Adapter Library System** (`adapters/lib.sh`) - 350+ lines of standardized utilities
-  - Standardized logging functions (debug, info, warn, error)
-  - Command discovery and validation utilities
-  - Path validation and resolution
-  - Configuration management
-  - Safe execution helpers (`adapter_exec`, `adapter_exec_bg`)
-  - Environment variable management and API key validation
-  - Network connectivity checks
-  - Comprehensive diagnostic utilities
-  - 30+ utility functions for consistent adapter behavior
-
-#### Documentation
-- **Comprehensive ADAPTERS-improved.md** (2,000+ lines)
-  - Complete adapter inventory with capabilities
-  - Quick start guide for users
-  - Advanced usage patterns (remote development, terminal editors, AI analysis)
-  - Implementation guide with code templates
-  - lib.sh function reference
-  - Best practices for users and developers
-  - Detailed troubleshooting with debug mode
-  - Migration guide from legacy adapters
-  - Adapter quality checklist
-
-- **Quick Reference Guide** (`docs/quick-reference.md`)
-  - Common commands and flags
-  - Configuration options
-  - Troubleshooting tips
-  - Keyboard shortcuts
-
-- **FAQ Documentation** (`docs/faq.md`)
-  - Common questions and answers
-  - Best practices
-  - Performance optimization
-  - Team workflows
-
-- **Error Handling Guide** (`docs/errors.md`)
-  - Error codes and meanings
-  - Recovery procedures
-  - Debugging strategies
-
-- **Setup Guide** (`docs/setup.md`)
-  - Installation instructions
-  - Configuration options
-  - Shell integration setup
-  - Post-installation verification
-
-- **Basic Workflow Guide** (`docs/basic-workflow.md`)
-  - Getting started tutorial
-  - Daily workflow examples
-  - Common patterns
-  - Tips and tricks
-
-- **Integration Guide** (`docs/INTEGRATION_GUIDE.md`) (500+ lines)
-  - Tool integration patterns
-  - MCP server integration
-  - CI/CD integration
-  - IDE integration
-  - Custom hooks
-  - Adapter development guide
-
-- **Documentation Index** (`docs/INDEX.md`)
-  - Navigation guide for all documentation
-  - Quick links to all guides
-
-#### Examples
-- **5 Workflow Examples**
-  - Parallel Development Example (`examples/parallel_development.sh`)
-  - Running Services Example (`examples/run_services.sh`)
-  - Monorepo Workflow Example (`examples/monorepo_workflow.sh`)
-  - CI Integration Example (`examples/ci_integration.sh`)
-  - Team Collaboration Example (`examples/team_collaboration.sh`)
-
-- **Configuration Examples**
-  - `.wtrconfig.example` - Complete configuration template
-  - `examples/README.md` (443 lines) - Comprehensive guide to examples
-
-- **Hook Examples**
-  - `post-create.sh` - Post-creation setup examples
-  - `pre-create.sh` - Pre-creation validation examples
-  - `post-remove.sh` - Cleanup examples
-
-#### Adapters - All 23 Enhanced
-
-**Editor Adapters (14 total) - Fully Standardized:**
-- `cursor.sh` - Cursor IDE integration (✅ Enhanced)
-- `vscode.sh` - VS Code integration (✅ Rewritten with lib.sh)
-- `vscode_remote.sh` - VS Code Remote (✅ Remote/container/WSL support)
-- `zed.sh` - Zed editor integration (✅ Enhanced)
-- `sublime.sh` - Sublime Text integration (✅ Enhanced)
-- `vim.sh` - Vim editor integration (✅ Enhanced)
-- `nvim.sh` - Neovim integration (✅ Enhanced)
-- `emacs.sh` - Emacs integration (✅ Enhanced)
-- `idea.sh` - IntelliJ IDEA integration (✅ Enhanced)
-- `webstorm.sh` - WebStorm integration (✅ Enhanced)
-- `pycharm.sh` - PyCharm integration (✅ Enhanced)
-- `atom.sh` - Atom editor support (✅ Maintained)
-- `nano.sh` - Nano editor integration (✅ Enhanced)
-- `antigravity.sh` - Antigravity cloud editor (✅ Enhanced)
-
-**AI Tool Adapters (9 total) - Fully Standardized:**
-- `claude.sh` - Claude AI integration (✅ Comprehensive rewrite)
-- `gemini.sh` - Google Gemini integration (✅ API implementation)
-- `copilot.sh` - GitHub Copilot integration (✅ Enhanced)
-- `continue.sh` - Continue.dev extension (✅ Enhanced with setup guide)
-- `aider.sh` - Aider pair programming (✅ Enhanced)
-- `opencode.sh` - OpenCode interpreter (✅ Enhanced)
-- `cursor.sh` - Cursor AI features (✅ Enhanced)
-- `codex.sh` - OpenAI Codex integration (✅ Deprecated info added)
-- `antigravity.sh` - Antigravity AI (✅ API implementation)
-
-**Adapter Features:**
-- All adapters source standardized `lib.sh` library
-- Standardized command interface: `open|start`, `check|status`, `version`, `help`
-- Automatic tool detection with helpful error messages
-- Installation hints for missing tools
-- Debug mode support (`WTR_ADAPTER_DEBUG=1`)
-- API key configuration with multiple config file locations
-- Network connectivity checks for API-based adapters
-- Comprehensive logging and diagnostics
-
-#### Security
-- **Shell Script Security Audit** with fixes:
-  - Eliminated eval-based command injection vulnerabilities in `lib/core.sh`
-  - Fixed dangerous variable expansion in `lib/config.sh`
-  - Added input validation in `lib/copy.sh`
-  - Implemented comprehensive error handling
-  - Created `IMPROVEMENTS.md` documenting all security fixes
-
-- **MCP Server Hardening**:
-  - Parameter validators for all API endpoints
-  - Timeout protection (30-second maximum execution time)
-  - Comprehensive audit logging for all operations
-  - Environment variable validation
-  - Rate limiting indicators
-  - 5 security documentation files
-  - Test suite for adapter contract validation
-
-### Changed
-
-#### Documentation Improvements
-- Reorganized documentation structure for better navigation
-- Added comprehensive cross-references between guides
-- Improved code examples and use cases
-- Enhanced troubleshooting sections with debug guidance
-
-#### Adapter System
-- All adapters follow standardized pattern using `lib.sh`
-- Consistent error handling across all tools
-- Unified logging and debug output
-- Standardized configuration management
-- Terminal and GUI adapters handle execution context properly
-
-#### Error Handling
-- Improved error messages with actionable guidance
-- Added installation instructions to adapter errors
-- Better error codes and exit statuses
-- Comprehensive error documentation
+## [Unreleased]
 
 ### Fixed
 
-- Fixed inconsistent adapter implementations
-- Fixed missing error handling in editor adapters
-- Fixed undefined behavior for missing tools
-- Fixed incomplete configuration management
-- Fixed documentation gaps in adapter system
-- Fixed security vulnerabilities in shell scripts
-- Fixed MCP server validation issues
+- The integration test helper now canonicalizes its temporary repository path. On macOS `mktemp -d` returns a `/var` path while git records the resolved `/private/var` one, so `cmd_clean --merged uses nested registered worktree path` compared two spellings of the same directory and failed locally while passing in CI.
 
-### Deprecated
+## [2.11.1] - 2026-09-14
 
-- OpenAI Codex adapter now properly indicates deprecation (recommends GPT-4)
-- Basic legacy adapter patterns (use lib.sh instead)
+### Changed
 
-### Security
+- The README documents `--sparse`/`--no-sparse` under `git wtr new` and lists the Maintainers section in its table of contents.
+- `docs/agent-usage.md` explains how to suppress hooks, file copying, and fetching for bare automation worktrees.
+- `docs/configuration.md` lists the remaining `WTR_*` fallback variables and now separates them from the variables read directly (`WTR_DIR`, `WTR_EDITOR_CMD`, `WTR_AI_CMD`, `WTR_COLOR`, `NO_COLOR`), which do not follow the configuration precedence order.
+- `docs/troubleshooting.md` replaces a `bash -x git wtr` instruction that cannot work with a trace of the real script, and documents `WTR_DEBUG`.
+- `AGENTS.md` and `CLAUDE.md` now cover the `pr` and `trust` commands, `clean --closed`, sparse-checkout inheritance, `postCd` hooks, and the current test suite layout, and describe the completion files as generated by `scripts/generate-completions.sh`.
+- `.github/copilot-instructions.md` rewritten for the current `bin/git-wtr` and `lib/` layout; it had described a single-file `bin/wtr` with an `open` command since before the modularization.
+- `.github/instructions/*.instructions.md` and `CONTRIBUTING.md` now state that `completions/*` are generated by `scripts/generate-completions.sh` rather than hand-edited, name `editor` instead of the removed `open` command, list the BATS, ShellCheck, and completions CI gates, include `.wtrconfig` in the config precedence, and point at `bin/git-wtr` for `set -e`.
+- The same guidance now describes the `lib/hooks.sh` dispatchers accurately, distinguishes the `postCd` paths (the AI launch path runs them when the tool starts, while the shell functions generated by `init` run them for `wtr cd` and the `--cd` flows), and records that `git wtr completion zsh` emits an fpath snippet rather than the generated file.
 
-- Eliminated all eval-based command execution vulnerabilities
-- Added proper input validation across all shell scripts
-- Implemented environment variable validation
-- Added API key validation and secure handling
-- Added timeout protection for long-running operations
-- Comprehensive audit logging for security operations
+### Fixed
 
-### Documentation
+- `WTR_DEBUG=1` now reports the file, line and function of an unexpected failure. `bin/git-wtr` installed an `ERR` trap but ran under `set -e` alone, so the trap was never inherited by functions; since every command runs inside `main()` and a `cmd_*` handler, the variable had no observable effect. The script now uses `set -eE`, which changes nothing when the trap is not installed.
+- `AGENTS.md` referenced a nonexistent `adapters/ai/Codex.sh`; it now points at `adapters/ai/claude.sh`.
+- The architecture diagram in `docs/troubleshooting.md` described `bin/git-wtr` as a wrapper around `bin/wtr`; the roles are reversed and the remaining `lib/` modules are listed.
+- `AGENTS.md` and `CLAUDE.md` attributed `postCd` hooks to `run_hooks_in`; they now describe `run_hooks_export` and the `init`-generated shell functions, and distinguish the paths: the AI launch path runs them when the tool starts, while the shell functions generated by `init` run them for `wtr cd` and the `--cd` flows.
 
-Over **7,000 lines** of new documentation added:
-- 6 comprehensive guides (setup, workflow, FAQ, errors, integration, reference)
-- 1 documentation index
-- 1 adapter system guide (2,000+ lines)
-- Complete API documentation for 23 adapters
-- Implementation patterns and templates
-- Troubleshooting guides
-- Best practices documentation
-
-### Examples
-
-Over **2,900 lines** of practical examples:
-- 5 workflow scripts demonstrating common patterns
-- Sample configuration files
-- Hook examples for common scenarios
-- Complete build/run examples
-- Team collaboration patterns
-
-### Performance
-
-- No breaking changes
-- All improvements are backward compatible
-- Enhanced error detection improves overall reliability
-
-## [2.0.0] - 2024-XX-XX
+## [2.11.0] - 2026-08-19
 
 ### Added
 
-- Initial release with core worktree management
-- Editor adapter system
-- AI tool integration
-- Configuration management
-- Hook system
-- Documentation
+- Antigravity's terminal agent is available as the `antigravity` AI adapter, while other safe agent commands continue to work through the generic `PATH` fallback.
 
-### Features
+### Changed
 
-- Create and manage multiple Git worktrees
-- Automatic branch creation
-- File copying from main repo
-- Hook execution
-- Various editor integrations
-- Basic AI tool support
+- Antigravity editor launches now use the current `agy-ide` command, and the Cursor AI adapter prefers the current `agent` command while retaining legacy fallbacks.
+- Editor and AI documentation now uses current installation commands and labels retired or unmaintained integrations as legacy compatibility.
+- The README now leads with PR review and coding-agent workflows, surfaces agent automation earlier, and documents the complete configuration precedence.
 
----
+## [2.10.0] - 2026-08-12
 
-## Version Numbering
+### Added
 
-This project follows [Semantic Versioning](https://semver.org/):
+- `git wtr new --porcelain` emits stable worktree path, branch, and hook-status records for shell automation and coding agents, with incidental output isolated on stderr.
+- Agent integration guidance documents the machine-readable contract and recommended trust and cleanup boundaries.
 
-- **MAJOR** version (X.0.0): Breaking changes or major feature additions
-- **MINOR** version (0.X.0): Backward-compatible feature additions
-- **PATCH** version (0.0.X): Backward-compatible bug fixes
+## [2.9.0] - 2026-08-12
 
-Visit [releases](https://github.com/neopilot-ai/wtr/releases) for detailed release notes.
+### Added
 
----
+- `git wtr pr <number|url|branch>` creates GitHub pull request worktrees with WTR-managed paths, copy and hook automation, editor/AI launch options, and shell `--cd` integration; newer GitHub CLI versions use native worktree checkout while older versions retain a compatible fallback ([#187](https://github.com/neopilot-ai/wtr/pull/187))
+- `git wtr new` now inherits sparse-checkout configuration from the selected base worktree on Git 2.36+, with `--sparse`, `--no-sparse`, and `wtr.sparse.inherit` controls ([#186](https://github.com/neopilot-ai/wtr/pull/186))
 
-## Migration Guides
+### Changed
 
-### Updating from 2.0.x to 2.1.0
+- Fork pull requests now run ShellCheck, completion verification, and BATS with a least-privilege, non-persisted workflow token after maintainer approval ([#185](https://github.com/neopilot-ai/wtr/pull/185))
 
-**All changes are backward compatible.** No action required, but you may want to:
+## [2.8.2] - 2026-08-12
 
-1. Review new documentation in `/docs`
-2. Explore new examples in `/examples`
-3. Check adapter improvements for your favorite tools
-4. Enable debug mode if you encounter issues: `export WTR_ADAPTER_DEBUG=1`
+### Fixed
 
-**For Adapter Developers:**
+- `wtr.copy.includeDirs` now resolves literal paths without full-repository scans, batches unavoidable recursive discovery, and reuses results across `git wtr copy --all` targets while preserving nested basename matching ([#191](https://github.com/neopilot-ai/wtr/pull/191))
 
-If you've created custom adapters, consider updating them to use the new `lib.sh` utilities:
+## [2.8.1] - 2026-08-12
 
-```bash
-# Add at top of your adapter script
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ADAPTERS_DIR="$(dirname "$SCRIPT_DIR")"
-[ -f "$ADAPTERS_DIR/lib.sh" ] && source "$ADAPTERS_DIR/lib.sh"
+### Fixed
 
-# Replace manual checks with lib.sh utilities
-adapter_validate_path "$target"      # Instead of manual validation
-adapter_check_command "tool"         # Instead of command -v
-adapter_log_info "message"           # Instead of echo
-```
+- `git wtr rm` now returns a non-zero exit status when any requested worktree cannot be resolved or removed, or when a pre-remove hook blocks removal, while still processing later targets ([#190](https://github.com/neopilot-ai/wtr/pull/190))
 
-See `/docs/ADAPTERS-improved.md` for complete migration guide.
+## [2.8.0] - 2026-06-12
 
----
+### Added
 
-## Acknowledgments
+- `git wtr clean --closed` to remove worktrees whose PRs/MRs were closed without merging; combine with `--merged` to match either state, and `--to <ref>` now filters both modes by target base ref ([#183](https://github.com/neopilot-ai/wtr/pull/183))
 
-This release incorporates extensive improvements to:
-- Security hardening
-- Documentation coverage
-- Adapter system standardization
-- Example workflows
-- Error handling and diagnostics
+### Fixed
 
-Thanks to all contributors and users who helped shape wtr into a robust tool for parallel development.
+- `git wtr clean` now detects registry entries that are locked but whose directories no longer exist and offers to unlock and prune them ([#182](https://github.com/neopilot-ai/wtr/pull/182))
+- GitLab MR branch-tip matching now validates head SHAs structurally instead of substring matching, preventing false matches on unrelated JSON fields ([#183](https://github.com/neopilot-ai/wtr/pull/183))
+
+## [2.7.3] - 2026-05-05
+
+### Fixed
+
+- Worktree inventory now uses Git's registered worktree list so nested registered worktrees are listed, resolved, copied, and cleaned correctly without bogus parent-directory entries ([#178](https://github.com/neopilot-ai/wtr/pull/178)).
+
+## [2.7.2] - 2026-04-28
+
+### Fixed
+
+- Directory copying now skips excluded child subtrees during copy instead of cloning them and deleting them afterward ([#176](https://github.com/neopilot-ai/wtr/pull/176)).
+
+## [2.7.1] - 2026-04-28
+
+### Added
+
+- `git wtr trust` now covers `.wtrconfig` hooks, `defaults.editor`, and `defaults.ai` entries as executable commands, preventing shared config from running hooks or selecting editor/AI commands until reviewed.
+
+### Fixed
+
+- Fish shell integration now resolves linked-worktree `.wtrconfig` files correctly and preserves the target worktree directory while checking trust.
+- Fish shell integration now computes trust hashes consistently with `git wtr trust` for multi-entry `.wtrconfig` files.
+
+## [2.7.0] - 2026-04-27
+
+### Added
+
+- `git wtr new --remote` and `wtr.defaultRemote` / `WTR_DEFAULT_REMOTE` to choose the remote used for default branch detection, fetches, and tracked branch creation ([#171](https://github.com/neopilot-ai/wtr/pull/171))
+- `--to <ref>` for `git wtr clean --merged` to limit cleanup to PRs/MRs merged into a specific target ref, with branch-tip matching for reused branch names ([#167](https://github.com/neopilot-ai/wtr/pull/167))
+
+### Fixed
+
+- Repo root resolution now works correctly from subdirectories ([#166](https://github.com/neopilot-ai/wtr/pull/166))
+- Hooks that read stdin no longer drain input and skip later hooks ([#165](https://github.com/neopilot-ai/wtr/pull/165))
+- Fish `git wtr cd` fzf picker now changes directory when pressing Enter ([#172](https://github.com/neopilot-ai/wtr/pull/172))
+- `git wtr copy` now honors configured `wtr.copy.includeDirs` and `wtr.copy.excludeDirs`, including dry-run, `--all`, and `--from` flows ([#173](https://github.com/neopilot-ai/wtr/pull/173))
+
+## [2.6.0] - 2026-03-19
+
+### Added
+
+- `--force` for `git wtr clean --merged` to remove dirty merged worktrees, including ones with untracked files ([#158](https://github.com/neopilot-ai/wtr/pull/158))
+
+### Fixed
+
+- Bash wrapper completions now preserve delegated completion context correctly ([#159](https://github.com/neopilot-ai/wtr/pull/159))
+
+## [2.5.0] - 2026-03-11
+
+### Added
+
+- `git wtr new --cd` shell integration so newly created worktrees can open in the current shell ([#151](https://github.com/neopilot-ai/wtr/pull/151))
+- Cached `git wtr init` output for faster shell startup ([#142](https://github.com/neopilot-ai/wtr/pull/142))
+- `ctrl-n` keybinding in the interactive `git wtr cd` picker to create a new worktree inline ([#141](https://github.com/neopilot-ai/wtr/pull/141))
+
+### Changed
+
+- `git wtr ai` now runs `postCd` hooks before launching AI tools ([#145](https://github.com/neopilot-ai/wtr/pull/145))
+- Improved interactive picker discoverability and empty-state guidance ([#139](https://github.com/neopilot-ai/wtr/pull/139))
+
+### Fixed
+
+- AI/editor launches from the fzf picker now run after fzf exits so terminal apps get a full terminal session ([#140](https://github.com/neopilot-ai/wtr/pull/140))
+- `--from` refs now resolve to SHAs to prevent Git DWIM from choosing the wrong branch ([#147](https://github.com/neopilot-ai/wtr/pull/147))
+- Default-branch tracking now uses `origin/<branch>` when branching from the remote default branch ([#149](https://github.com/neopilot-ai/wtr/pull/149))
+- Homebrew-installed completion assets now work with `git wtr completion <shell>` ([#155](https://github.com/neopilot-ai/wtr/pull/155))
+
+## [2.4.0] - 2026-02-24
+
+### Added
+
+- Interactive fzf worktree picker for `git wtr cd` with preview, keybindings, and multi-action support ([#136](https://github.com/neopilot-ai/wtr/pull/136))
+- Helpful error message when running `git wtr cd` explaining shell integration requirement ([#137](https://github.com/neopilot-ai/wtr/pull/137))
+
+### Changed
+
+- Limit `find` depth for simple directory copy patterns for better performance ([#130](https://github.com/neopilot-ai/wtr/pull/130))
+
+### Fixed
+
+- Root-level files now matched correctly for `**` glob patterns on Bash 3.2 ([#133](https://github.com/neopilot-ai/wtr/pull/133))
+- Antigravity adapter support ([#131](https://github.com/neopilot-ai/wtr/pull/131))
+
+## [2.3.1] - 2026-02-17
+
+### Added
+
+- Google Antigravity adapter ([#121](https://github.com/neopilot-ai/wtr/pull/121))
+
+### Changed
+
+- Copy-on-write (CoW) cloning for directory copies on supported filesystems ([#122](https://github.com/neopilot-ai/wtr/pull/122))
+
+### Fixed
+
+- `wtr`/coreutils naming conflict resolved and `cd` completions added ([#125](https://github.com/neopilot-ai/wtr/pull/125))
+- Main repo root resolved correctly from inside worktrees ([#126](https://github.com/neopilot-ai/wtr/pull/126))
+- `resolve_target` fallback via `git worktree list` for external worktrees ([#128](https://github.com/neopilot-ai/wtr/pull/128))
+
+## [2.3.0] - 2026-02-12
+
+### Added
+
+- Color output with `NO_COLOR`/`WTR_COLOR`/`wtr.ui.color` config support ([#120](https://github.com/neopilot-ai/wtr/pull/120))
+- Per-command help system with `_help_<command>()` functions ([#120](https://github.com/neopilot-ai/wtr/pull/120))
+- BATS test suite with 174 automated tests ([#119](https://github.com/neopilot-ai/wtr/pull/119))
+
+### Changed
+
+- Modularized monolithic `bin/wtr` into `lib/*.sh` libraries and `lib/commands/*.sh` ([#119](https://github.com/neopilot-ai/wtr/pull/119))
+- Unified adapter loading for editors and AI tools ([#116](https://github.com/neopilot-ai/wtr/pull/116))
+- Unified bidirectional config key mapping ([#115](https://github.com/neopilot-ai/wtr/pull/115))
+
+### Fixed
+
+- Removed ghost completion flag and added missing completions ([#111](https://github.com/neopilot-ai/wtr/pull/111))
+
+## [2.2.0] - 2026-02-10
+
+### Added
+
+- `mv`/`rename` command for worktree renaming ([#95](https://github.com/neopilot-ai/wtr/pull/95))
+- Shell integration via `git wtr init` with `git wtr cd` navigation ([#104](https://github.com/neopilot-ai/wtr/pull/104))
+- `postCd` hook for shell integration ([#109](https://github.com/neopilot-ai/wtr/pull/109))
+- GitLab support for `clean --merged` ([#105](https://github.com/neopilot-ai/wtr/pull/105))
+- `--folder` flag for custom worktree folder names ([#82](https://github.com/neopilot-ai/wtr/pull/82))
+- `--no-hooks` flag to skip post-create hooks ([#91](https://github.com/neopilot-ai/wtr/pull/91))
+- Auggie CLI adapter ([#84](https://github.com/neopilot-ai/wtr/pull/84))
+- `$HOME/.local/bin` as install path option ([#100](https://github.com/neopilot-ai/wtr/pull/100))
+
+### Fixed
+
+- Base directory excluded from worktree list output ([#86](https://github.com/neopilot-ai/wtr/pull/86))
+- Zsh completion timing issue resolved with `git wtr completion` command ([#87](https://github.com/neopilot-ai/wtr/pull/87))
+- `.wtrconfig` file key auto-mapping in `cfg_default` ([#88](https://github.com/neopilot-ai/wtr/pull/88))
+- Paths with slashes in `includeDirs` now handled correctly ([#103](https://github.com/neopilot-ai/wtr/pull/103))
+
+## [2.1.0] - 2026-01-14
+
+### Added
+
+- `.code-workspace` file support for VS Code/Cursor editors ([#78](https://github.com/neopilot-ai/wtr/pull/78))
+- `--editor` and `--ai` flags to `new` command for immediate editor/AI tool launch ([#72](https://github.com/neopilot-ai/wtr/pull/72))
+- `config list` action with improved scope handling ([#68](https://github.com/neopilot-ai/wtr/pull/68))
+- `--merged` flag to `clean` command for squash-merged PR detection ([#64](https://github.com/neopilot-ai/wtr/pull/64))
+- GitHub Copilot CLI adapter ([#56](https://github.com/neopilot-ai/wtr/pull/56))
+- `preRemove` hooks to run commands before worktree removal, with abort on failure unless `--force` ([#48](https://github.com/neopilot-ai/wtr/pull/48))
+- `copy` command for syncing files to existing worktrees with `--all` and `--dry-run` options ([#39](https://github.com/neopilot-ai/wtr/pull/39))
+- `.wtrconfig` file support for declarative team configuration using gitconfig syntax ([#38](https://github.com/neopilot-ai/wtr/pull/38))
+- `.worktreeinclude` file support for pattern-based file copying ([#28](https://github.com/neopilot-ai/wtr/pull/28))
+- Install script with platform detection ([#63](https://github.com/neopilot-ai/wtr/pull/63))
+
+### Fixed
+
+- Fish completion renamed to `git-wtr.fish` for proper git subcommand detection ([#71](https://github.com/neopilot-ai/wtr/pull/71))
+- Git error messages now surfaced on worktree removal failure ([#55](https://github.com/neopilot-ai/wtr/pull/55))
+- `rm` command now displays folder name instead of branch name for clarity ([#53](https://github.com/neopilot-ai/wtr/pull/53))
+- Branch names with `#` now sanitized to prevent shebang issues in folder names ([#44](https://github.com/neopilot-ai/wtr/pull/44))
+- Symlinks preserved when copying directories ([#46](https://github.com/neopilot-ai/wtr/pull/46))
+- `config get/unset` now handle multi-value keys correctly ([#37](https://github.com/neopilot-ai/wtr/pull/37))
+- Branch track output silenced in auto mode ([#33](https://github.com/neopilot-ai/wtr/pull/33))
+
+## [2.0.0] - 2025-11-24
+
+### Added
+
+- `run` command to execute commands in worktrees without navigation (e.g., `git wtr run <branch> npm test`)
+- `--from-current` flag for `git wtr new` command to create worktrees from the current branch instead of the default branch (useful for creating parallel variant worktrees)
+- Directory copying support via `wtr.copy.includeDirs` and `wtr.copy.excludeDirs` to copy entire directories (e.g., `node_modules`, `.venv`, `vendor`) when creating worktrees, avoiding dependency reinstallation
+- OpenCode AI adapter
+- Pull request template (`.github/PULL_REQUEST_TEMPLATE.md`)
+- Path canonicalization to properly resolve symlinks and compare paths
+
+### Changed
+
+- **BREAKING:** Migrated primary command from `wtr` to `git wtr` subcommand to resolve coreutils conflict with `wtr` command
+- `git-wtr` wrapper now properly resolves symlinks and delegates to main `wtr` script
+- Version output now displays as "git wtr version X.X.X" instead of "wtr version X.X.X"
+- Help messages and error output now reference `git wtr` instead of `wtr`
+- Base directory resolution now canonicalizes paths before comparison to handle symlinks correctly
+- README extensively reorganized and expanded with clearer examples and better structure
+
+### Fixed
+
+- Claude AI adapter now supports shell function definitions (e.g., `eval "$(ssh-agent -s)"`) in shell initialization files
+- Path comparison logic now canonicalizes paths before checking if worktrees are inside repository
+- `.gitignore` warnings now work correctly with symlinked paths
+- Zsh completion: Fixed word array normalization to correctly handle `wtr` and `git-wtr` direct invocations (not just `git wtr`)
+- Zsh completion: Fixed `new` command options to complete at any position, not just after the first argument
+- Zsh completion: Added `--editor` completion for `editor` command with list of available editors
+- Zsh completion: Added `--ai` completion for `ai` command with list of available AI tools
+- Zsh completion: Added `--porcelain` completion for `list`/`ls` commands
+- Zsh completion: Added `--global` completion for `config` command
+
+## [1.0.0] - 2025-11-14
+
+### Added
+
+- Initial release of `wtr` (Git Worktree Runner)
+- Core commands: `new`, `rm`, `go`, `open`, `ai`, `list`, `clean`, `doctor`, `config`, `adapter`, `help`, `version`
+- Worktree creation with branch sanitization, remote/local/auto tracking, and `--force --name` multi-worktree support
+- Base directory resolution with support for `.` (repo root) and `./path` (inside repo) plus legacy sibling behavior
+- Configuration system via `git config` (local→global→system precedence) and multi-value merging (`copy.include`, `hook.postCreate`, etc.)
+- Editor adapter framework (cursor, vscode, zed, idea, pycharm, webstorm, vim, nvim, emacs, sublime, nano, atom)
+- AI tool adapter framework (aider, claude, codex, cursor, continue)
+- Hooks system: `postCreate`, `postRemove` with environment variables (`REPO_ROOT`, `WORKTREE_PATH`, `BRANCH`)
+- Smart file copying (include/exclude glob patterns) with security guidance (`.env.example` vs `.env`)
+- Shell completions for Bash, Zsh, and Fish
+- Diagnostic commands: `doctor` (environment check) and `adapter` (adapter availability)
+- Debian packaging assets (`build-deb.sh`, `Makefile`, `debian/` directory)
+- Contributor & AI assistant guidance: `.github/instructions/*.instructions.md`, `.github/copilot-instructions.md`, `CLAUDE.md`
+- Support for storing worktrees inside the repository via `wtr.worktrees.dir=./<path>`
+
+### Changed
+
+- Improved base directory resolution logic to distinguish `.` (repo root), `./path` (repo-internal) from other relative values (sibling directories)
+
+[Unreleased]: https://github.com/neopilot-ai/wtr/compare/v2.10.0...HEAD
+[2.10.0]: https://github.com/neopilot-ai/wtr/compare/v2.9.0...v2.10.0
+[2.8.1]: https://github.com/neopilot-ai/wtr/compare/v2.8.0...v2.8.1
+[2.8.0]: https://github.com/neopilot-ai/wtr/compare/v2.7.3...v2.8.0
+[2.7.3]: https://github.com/neopilot-ai/wtr/compare/v2.7.2...v2.7.3
+[2.7.2]: https://github.com/neopilot-ai/wtr/compare/v2.7.1...v2.7.2
+[2.7.1]: https://github.com/neopilot-ai/wtr/compare/v2.7.0...v2.7.1
+[2.7.0]: https://github.com/neopilot-ai/wtr/compare/v2.6.0...v2.7.0
+[2.6.0]: https://github.com/neopilot-ai/wtr/compare/v2.5.0...v2.6.0
+[2.5.0]: https://github.com/neopilot-ai/wtr/compare/v2.4.0...v2.5.0
+[2.4.0]: https://github.com/neopilot-ai/wtr/compare/v2.3.1...v2.4.0
+[2.3.1]: https://github.com/neopilot-ai/wtr/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/neopilot-ai/wtr/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/neopilot-ai/wtr/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/neopilot-ai/wtr/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/neopilot-ai/wtr/compare/v1.0.0...v2.0.0
+[1.0.0]: https://github.com/neopilot-ai/wtr/releases/tag/v1.0.0

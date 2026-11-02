@@ -1,29 +1,92 @@
-## Description
-Briefly describe the changes introduced by this pull request.
+# Pull Request
 
-## Related Issues
-Fixes #[issue_number] (if applicable)
+## Description
+
+<!-- A clear and concise description of what this PR does -->
+
+## Motivation
+
+<!-- Why is this change needed? What problem does it solve? -->
+
+Fixes # (issue)
 
 ## Type of Change
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
+
+<!-- Check all that apply -->
+
+- [ ] Bug fix (non-breaking change that fixes an issue)
+- [ ] New feature (non-breaking change that adds functionality)
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
 - [ ] Documentation update
-- [ ] Refactoring
+- [ ] Code refactoring (no functional changes)
+- [ ] Other (please describe):
 
-## Proposed Changes
-- [List specific changes here]
+## Testing
 
-## How Has This Been Tested?
-Please describe the tests that you ran to verify your changes.
-- [ ] Manual verification (provide steps)
-- [ ] Automated tests (e.g., BATS tests)
-- [ ] Verified on local machine (macOS/Linux/WSL)
+<!-- Describe the tests you ran to verify your changes -->
+
+### Manual Testing Checklist
+
+**Tested on:**
+
+- [ ] macOS
+- [ ] Linux (specify distro: **\*\***\_**\*\***)
+- [ ] Windows (Git Bash)
+
+**Core functionality tested:**
+
+- [ ] `git wtr new <branch>` - Create worktree
+- [ ] `git wtr go <branch>` - Navigate to worktree
+- [ ] `git wtr editor <branch>` - Open in editor (if applicable)
+- [ ] `git wtr ai <branch>` - Start AI tool (if applicable)
+- [ ] `git wtr rm <branch>` - Remove worktree
+- [ ] `git wtr list` - List worktrees
+- [ ] `git wtr config` - Configuration commands (if applicable)
+- [ ] Other commands affected by this change: **\*\***\_\_**\*\***
+
+### Test Steps
+
+<!-- Provide detailed steps to reproduce/test your changes -->
+
+1.
+2.
+3.
+
+**Expected behavior:**
+
+**Actual behavior:**
+
+## Breaking Changes
+
+<!-- If this introduces breaking changes, describe: -->
+<!-- - What breaks -->
+<!-- - Why it's necessary -->
+<!-- - Migration path for users -->
+
+- [ ] This PR introduces breaking changes
+- [ ] I have discussed this in an issue first
+- [ ] Migration guide is included in documentation
 
 ## Checklist
-- [ ] My code follows the code style of this project.
-- [ ] I have performed a self-review of my own code.
-- [ ] I have commented my code, particularly in hard-to-understand areas.
-- [ ] I have made corresponding changes to the documentation.
-- [ ] My changes generate no new warnings.
-- [ ] New and existing tests pass locally with my changes.
+
+Before submitting this PR, please check:
+
+- [ ] I have read [CONTRIBUTING.md](../CONTRIBUTING.md)
+- [ ] My code follows the project's style guidelines
+- [ ] I have performed manual testing on at least one platform
+- [ ] I have updated documentation (README.md, CLAUDE.md, etc.) if needed
+- [ ] My changes work on multiple platforms (or I've noted platform-specific behavior)
+- [ ] I have added/updated shell completions (if adding new commands or flags)
+- [ ] I have tested with both `git wtr` (production) and `./bin/wtr` (development)
+- [ ] No new external dependencies are introduced (Bash + git only)
+- [ ] All existing functionality still works
+
+## Additional Context
+
+<!-- Add any other context, screenshots, or information about the PR here -->
+
+---
+
+## License Acknowledgment
+
+By submitting this pull request, I confirm that my contribution is made under the terms of the [Apache License 2.0](../LICENSE.txt).

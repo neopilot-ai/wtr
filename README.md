@@ -304,7 +304,7 @@ Precedence:
 
 ---
 
-## � AI Integration with MCP
+## 🤖 AI Integration with MCP
 
 **wtr** includes a **Model Context Protocol (MCP) server** that enables AI assistants to autonomously manage git worktrees.
 
@@ -360,7 +360,7 @@ Claude:
 4. [Returns results] ✅ All tests pass!
 ```
 
-Learn more: [MCP Server Documentation](docs/README.md) | [Integration Guide](docs/INTEGRATION_GUIDE.md)
+Learn more: [AI Agent Usage](docs/agent-usage.md) | [Configuration](docs/configuration.md)
 
 ---
 
@@ -372,11 +372,11 @@ Learn more: [MCP Server Documentation](docs/README.md) | [Integration Guide](doc
 * Repo bootstrapping scripts
 * Large mono-repo workflows
 
-➡️ Check out the [**Documentation Index**](docs/INDEX.md) for deeper dives into:
+➡️ Deeper dives:
 - [Configuration](docs/configuration.md)
-- [Editor & AI Adapters](docs/ADAPTERS.md)
-- [Tool & Service Integration](docs/INTEGRATION_GUIDE.md)
+- [Advanced Usage](docs/advanced-usage.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [AI Agent Usage](docs/agent-usage.md)
 
 ---
 

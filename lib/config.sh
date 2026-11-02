@@ -1,120 +1,521 @@
-# config.sh - git-based configuration management
+#!/usr/bin/env bash
+# Configuration management via git config and .wtrconfig file
+# Default values are defined where they're used in lib/core.sh
+#
+# Configuration precedence (highest to lowest):
+# 1. git config --local (.git/config)
+# 2. .wtrconfig file (repo root) - team defaults
+# 3. git config --global (~/.gitconfig)
+# 4. git config --system (/etc/gitconfig)
+# 5. Environment variables
+# 6. Fallback values
 
-# Get a config value (merged from all sources)
-cfg_get() {
-  local key="$1"
-  git config --get "$key" 2>/dev/null || true
+# Resolve the main repo root from the current git context.
+# Works from the main repo root, a subdirectory, or a linked worktree.
+# Returns: absolute path to main repo root or empty on failure
+_resolve_main_repo_root() {
+  local git_common_dir repo_root
+  git_common_dir=$(git rev-parse --git-common-dir 2>/dev/null) || return 1
+
+  [ -n "$git_common_dir" ] || return 1
+
+  case "$git_common_dir" in
+    /*)
+      repo_root="${git_common_dir%/.git}"
+      ;;
+    *)
+      repo_root=$(
+        unset CDPATH
+        cd -P -- "$git_common_dir/.." 2>/dev/null && pwd -P
+      ) || return 1
+      ;;
+  esac
+
+  [ -n "$repo_root" ] || return 1
+  printf "%s" "$repo_root"
 }
 
-# Get all values for a multi-valued config
+# Get the path to .wtrconfig file in main repo root
+# Usage: _wtrconfig_path
+# Returns: path to .wtrconfig or empty if not in a repo
+# Note: Uses _resolve_main_repo_root to find main repo even from worktrees/subdirectories
+_wtrconfig_path() {
+  local repo_root
+  repo_root=$(_resolve_main_repo_root) || return 0
+
+  printf "%s/.wtrconfig" "$repo_root"
+}
+
+# Get a single config value from .wtrconfig file
+# Usage: cfg_get_file key
+# Returns: value or empty string
+cfg_get_file() {
+  local key="$1"
+  local config_file
+  config_file=$(_wtrconfig_path)
+
+  if [ -n "$config_file" ] && [ -f "$config_file" ]; then
+    git config -f "$config_file" --get "$key" 2>/dev/null || true
+  fi
+}
+
+# Get all values for a multi-valued key from .wtrconfig file
+# Usage: cfg_get_all_file key
+# Returns: newline-separated values or empty string
+cfg_get_all_file() {
+  local key="$1"
+  local config_file
+  config_file=$(_wtrconfig_path)
+
+  if [ -n "$config_file" ] && [ -f "$config_file" ]; then
+    git config -f "$config_file" --get-all "$key" 2>/dev/null || true
+  fi
+}
+
+# Get a single config value
+# Usage: cfg_get key [scope]
+# scope: auto (default), local, global, or system
+# auto uses git's built-in precedence: local > global > system
+cfg_get() {
+  local key="$1"
+  local scope="${2:-auto}"
+  local flag=""
+
+  case "$scope" in
+    local)  flag="--local" ;;
+    global) flag="--global" ;;
+    system) flag="--system" ;;
+    auto|*) flag="" ;;
+  esac
+
+  git config $flag --get "$key" 2>/dev/null || true
+}
+
+# Single source of truth for wtr.* <-> .wtrconfig key mapping
+# Format: "wtr_key|file_key" — add new config keys here only
+_CFG_KEY_MAP=(
+  "wtr.copy.include|copy.include"
+  "wtr.copy.exclude|copy.exclude"
+  "wtr.copy.includeDirs|copy.includeDirs"
+  "wtr.copy.excludeDirs|copy.excludeDirs"
+  "wtr.hook.postCreate|hooks.postCreate"
+  "wtr.hook.preRemove|hooks.preRemove"
+  "wtr.hook.postRemove|hooks.postRemove"
+  "wtr.hook.postCd|hooks.postCd"
+  "wtr.editor.default|defaults.editor"
+  "wtr.editor.workspace|editor.workspace"
+  "wtr.ai.default|defaults.ai"
+  "wtr.worktrees.dir|worktrees.dir"
+  "wtr.worktrees.prefix|worktrees.prefix"
+  "wtr.sparse.inherit|sparse.inherit"
+  "wtr.defaultBranch|defaults.branch"
+  "wtr.defaultRemote|defaults.remote"
+  "wtr.provider|defaults.provider"
+  "wtr.ui.color|ui.color"
+)
+
+# Map a wtr.* config key to its .wtrconfig equivalent
+# Usage: cfg_map_to_file_key <key>
+# Returns: mapped key for .wtrconfig or empty if no mapping exists
+cfg_map_to_file_key() {
+  local pair
+  for pair in "${_CFG_KEY_MAP[@]}"; do
+    if [ "${pair%%|*}" = "$1" ]; then
+      echo "${pair#*|}"
+      return
+    fi
+  done
+}
+
+# Map a .wtrconfig key to its wtr.* config equivalent (reverse of cfg_map_to_file_key)
+# Usage: cfg_map_from_file_key <file_key>
+# Returns: mapped wtr.* key, or empty if no mapping exists
+cfg_map_from_file_key() {
+  local pair
+  for pair in "${_CFG_KEY_MAP[@]}"; do
+    if [ "${pair#*|}" = "$1" ]; then
+      echo "${pair%%|*}"
+      return
+    fi
+  done
+  # Passthrough for wtr.* keys already in canonical form
+  case "$1" in wtr.*) echo "$1" ;; esac
+}
+
+# Check if a key is a recognized wtr.* config key
+# Usage: _cfg_is_known_key <key>
+# Returns: 0 if known, 1 if not
+_cfg_is_known_key() {
+  local pair
+  for pair in "${_CFG_KEY_MAP[@]}"; do
+    [ "${pair%%|*}" = "$1" ] && return 0
+  done
+  return 1
+}
+
+# Get all values for a multi-valued config key
+# Usage: cfg_get_all key [file_key] [scope]
+# file_key: optional key name in .wtrconfig (e.g., "copy.include" for wtr.copy.include)
+#           If empty and key starts with "wtr.", auto-maps to .wtrconfig key
+# scope: auto (default), local, global, or system
+# auto merges local + .wtrconfig + global + system and deduplicates
 cfg_get_all() {
   local key="$1"
   local file_key="${2:-}"
   local scope="${3:-auto}"
 
+  # Auto-map file_key if not provided and key is a wtr.* key
+  if [ -z "$file_key" ] && [[ "$key" == wtr.* ]]; then
+    file_key=$(cfg_map_to_file_key "$key")
+  fi
+
+  case "$scope" in
+    local)
+      git config --local --get-all "$key" 2>/dev/null || true
+      ;;
+    global)
+      git config --global --get-all "$key" 2>/dev/null || true
+      ;;
+    system)
+      git config --system --get-all "$key" 2>/dev/null || true
+      ;;
+    auto|*)
+      # Merge all levels and deduplicate while preserving order
+      # Precedence: local > .wtrconfig > global > system
+      {
+        git config --local  --get-all "$key" 2>/dev/null || true
+        if [ -n "$file_key" ]; then
+          cfg_get_all_file "$file_key"
+        fi
+        git config --global --get-all "$key" 2>/dev/null || true
+        git config --system --get-all "$key" 2>/dev/null || true
+      } | awk '!seen[$0]++'
+      ;;
+  esac
+}
+
+# Read one config source with Git's native boolean parser.
+# Returns 0 with true/false output, 1 when absent, 2 when present but invalid,
+# and 3 when the installed Git does not recognize a requested config option.
+_cfg_read_bool() {
+  local key="$1" value status
+  shift
+  if value=$(git config "$@" --bool --get "$key" 2>/dev/null); then
+    printf "%s" "$value"
+    return 0
+  else
+    status=$?
+  fi
+  [ "$status" -eq 1 ] && return 1
+  [ "$status" -eq 129 ] && return 3
+  return 2
+}
+
+# Get a boolean config value.
+# Precedence: worktree > local > .wtrconfig > global > system > default.
+# Usage: cfg_bool key [default]
+# Returns: 0 for true, 1 for false.
+cfg_bool() {
+  local key="$1" default="${2:-false}" source candidate value status
+  local file_key="" config_file=""
   local args=()
-  [ "$scope" != "auto" ] && args+=("--$scope")
 
-  # 1. Check git config
-  local result
-  result=$(git config "${args[@]}" --get-all "$key" 2>/dev/null || true)
+  for source in worktree local file global system; do
+    candidate="$key"
+    case "$source" in
+      worktree) args=(--worktree) ;;
+      local) args=(--local) ;;
+      file)
+        file_key=$(cfg_map_to_file_key "$key")
+        [ -n "$file_key" ] || continue
+        config_file=$(_wtrconfig_path)
+        [ -f "$config_file" ] || continue
+        candidate="$file_key"
+        args=(-f "$config_file")
+        ;;
+      global) args=(--global) ;;
+      system) args=(--system) ;;
+    esac
+    if value=$(_cfg_read_bool "$candidate" "${args[@]}"); then
+      [ "$value" = "true" ]
+      return
+    else
+      status=$?
+      [ "$source" = "worktree" ] && [ "$status" -eq 3 ] && continue
+      [ "$status" -eq 2 ] && return 1
+    fi
+  done
 
-  # 2. Check local file-based config if provided (.wtrconfig)
-  if [ -n "$file_key" ] && [ -f ".wtrconfig" ]; then
-    # Simple parser for key=value
-    local file_result
-    file_result=$(grep "^$file_key=" ".wtrconfig" | cut -d'=' -f2- || true)
-    if [ -n "$file_result" ]; then
-      if [ -n "$result" ]; then
-        result="$result"$'\n'"$file_result"
+  case "$default" in
+    [tT][rR][uU][eE]|[yY][eE][sS]|1|[oO][nN]) return 0 ;;
+  esac
+  return 1
+}
+
+# Convert scope name to git config flag
+# Usage: _cfg_scope_flag <scope>
+# Returns: --local, --global, or --system
+_cfg_scope_flag() {
+  case "${1:-local}" in
+    --global|global) echo "--global" ;;
+    --system|system) echo "--system" ;;
+    *)               echo "--local" ;;
+  esac
+}
+
+# Set a config value
+# Usage: cfg_set key value [scope]
+cfg_set() {
+  local flag
+  flag=$(_cfg_scope_flag "${3:-local}")
+  # shellcheck disable=SC2086
+  git config $flag "$1" "$2"
+}
+
+# Add a value to a multi-valued config key
+# Usage: cfg_add key value [scope]
+cfg_add() {
+  local flag
+  flag=$(_cfg_scope_flag "${3:-local}")
+  # shellcheck disable=SC2086
+  git config $flag --add "$1" "$2"
+}
+
+# Unset a config value
+# Usage: cfg_unset key [scope]
+cfg_unset() {
+  local flag
+  flag=$(_cfg_scope_flag "${2:-local}")
+  # shellcheck disable=SC2086
+  git config $flag --unset-all "$1" 2>/dev/null || true
+}
+
+# ── cfg_list helpers ──────────────────────────────────────────────────
+# Module-level state for cfg_list auto-mode deduplication.
+# Reset by cfg_list() at the start of each "auto" invocation.
+_cfg_list_seen=""
+_cfg_list_result=""
+
+# Add a config entry, deduplicating by key+value combo.
+# Uses Unit Separator ($'\x1f') as delimiter to avoid collision with any value content.
+# Usage: _cfg_list_add_entry <origin> <key> <value>
+_cfg_list_add_entry() {
+  local origin="$1" entry_key="$2" entry_value="$3"
+  local id=$'\x1f'"${entry_key}=${entry_value}"$'\x1f'
+
+  # Use [[ ]] for literal string matching (no glob interpretation)
+  if [[ "$_cfg_list_seen" == *"$id"* ]]; then
+    return 0
+  fi
+
+  _cfg_list_seen="${_cfg_list_seen}${id}"
+  _cfg_list_result="${_cfg_list_result}${entry_key}"$'\x1f'"${entry_value}"$'\x1f'"${origin}"$'\n'
+}
+
+# Parse git config --get-regexp output and add each entry with an origin label.
+# Usage: _cfg_list_parse_entries <origin> <get-regexp-output>
+_cfg_list_parse_entries() {
+  local origin="$1" entries="$2"
+  local line key value
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    key="${line%% *}"
+    if [[ "$line" == *" "* ]]; then
+      value="${line#* }"
+    else
+      value=""
+    fi
+    _cfg_list_add_entry "$origin" "$key" "$value"
+  done <<< "$entries"
+}
+
+# Format cfg_list output with alignment.
+# Detects auto-mode (Unit Separator delimited with origin) vs scoped (space delimited).
+# Usage: _cfg_list_format <output>
+_cfg_list_format() {
+  local output="$1"
+  if [ -z "$output" ]; then
+    echo "No wtr configuration found"
+    return 0
+  fi
+
+  printf '%s\n' "$output" | while IFS= read -r line; do
+    [ -z "$line" ] && continue
+
+    local key value origin rest
+    if [[ "$line" == *$'\x1f'* ]]; then
+      # Auto-mode format: key<US>value<US>origin
+      key="${line%%$'\x1f'*}"
+      rest="${line#*$'\x1f'}"
+      value="${rest%%$'\x1f'*}"
+      origin="${rest#*$'\x1f'}"
+      printf "%-35s = %-25s [%s]\n" "$key" "$value" "$origin"
+    else
+      # Scoped format: key value (no origin)
+      key="${line%% *}"
+      if [[ "$line" == *" "* ]]; then
+        value="${line#* }"
       else
-        result="$file_result"
+        value=""
+      fi
+      printf "%-35s = %s\n" "$key" "$value"
+    fi
+  done
+}
+
+# List all wtr.* config values
+# Usage: cfg_list [scope]
+# scope: auto (default), local, global, system
+# auto shows merged config from all sources with origin labels
+# Returns formatted key = value output, or message if empty
+# Note: Shows ALL values for multi-valued keys (copy patterns, hooks, etc.)
+cfg_list() {
+  local scope="${1:-auto}"
+  local output=""
+  local config_file
+  config_file=$(_wtrconfig_path)
+
+  case "$scope" in
+    local)
+      output=$(git config --local --get-regexp '^wtr\.' 2>/dev/null || true)
+      ;;
+    global)
+      output=$(git config --global --get-regexp '^wtr\.' 2>/dev/null || true)
+      ;;
+    system)
+      output=$(git config --system --get-regexp '^wtr\.' 2>/dev/null || true)
+      ;;
+    auto)
+      # Reset module-level state for this invocation
+      _cfg_list_seen=""
+      _cfg_list_result=""
+      local key value line
+
+      # Process in priority order: local > .wtrconfig > global > system
+      _cfg_list_parse_entries "local" \
+        "$(git config --local --get-regexp '^wtr\.' 2>/dev/null || true)"
+
+      # .wtrconfig needs key remapping from file format to wtr.* format
+      if [ -n "$config_file" ] && [ -f "$config_file" ]; then
+        while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          local fkey mapped_key
+          fkey="${line%% *}"
+          if [[ "$line" == *" "* ]]; then
+            value="${line#* }"
+          else
+            value=""
+          fi
+          mapped_key=$(cfg_map_from_file_key "$fkey")
+          [ -z "$mapped_key" ] && continue
+          _cfg_list_add_entry ".wtrconfig" "$mapped_key" "$value"
+        done < <(git config -f "$config_file" --get-regexp '.' 2>/dev/null || true)
+      fi
+
+      _cfg_list_parse_entries "global" \
+        "$(git config --global --get-regexp '^wtr\.' 2>/dev/null || true)"
+      _cfg_list_parse_entries "system" \
+        "$(git config --system --get-regexp '^wtr\.' 2>/dev/null || true)"
+
+      output="$_cfg_list_result"
+      ;;
+    *)
+      log_warn "Unknown scope '$scope', using 'auto'"
+      cfg_list "auto"
+      return $?
+      ;;
+  esac
+
+  _cfg_list_format "$output"
+}
+
+# Get config value with environment variable fallback
+# Usage: cfg_default key env_name fallback_value [file_key]
+# file_key: optional key name in .wtrconfig (e.g., "defaults.editor" for wtr.editor.default)
+# Precedence: local config > .wtrconfig > global/system config > env var > fallback
+cfg_default() {
+  local key="$1"
+  local env_name="$2"
+  local fallback="$3"
+  local file_key="${4:-}"
+  local value
+
+  # Auto-map file_key if not provided and key is a wtr.* key
+  if [ -z "$file_key" ] && [[ "$key" == wtr.* ]]; then
+    file_key=$(cfg_map_to_file_key "$key")
+  fi
+
+  # 1. Try local git config first (highest priority)
+  value=$(git config --local --get "$key" 2>/dev/null || true)
+
+  # 2. Try .wtrconfig file
+  if [ -z "$value" ] && [ -n "$file_key" ]; then
+    value=$(cfg_get_file "$file_key")
+  fi
+
+  # 3. Try global/system git config
+  if [ -z "$value" ]; then
+    value=$(git config --get "$key" 2>/dev/null || true)
+  fi
+
+  # 4. Fall back to environment variable
+  if [ -z "$value" ] && [ -n "$env_name" ]; then
+    value=$(printenv "$env_name" 2>/dev/null) || true
+  fi
+
+  # 5. Use fallback if still empty
+  printf "%s" "${value:-$fallback}"
+}
+
+# Get a default config value while trust-gating the .wtrconfig source.
+# Usage: cfg_default_trusted_file key env_name fallback_value file_key
+# Precedence: local config > trusted .wtrconfig > global/system config > env var > fallback
+cfg_default_trusted_file() {
+  local key="$1"
+  local env_name="$2"
+  local fallback="$3"
+  local file_key="${4:-}"
+  local value file_value config_file
+
+  # Auto-map file_key if not provided and key is a wtr.* key
+  if [ -z "$file_key" ] && [[ "$key" == wtr.* ]]; then
+    file_key=$(cfg_map_to_file_key "$key")
+  fi
+
+  # 1. Try local git config first (highest priority)
+  value=$(git config --local --get "$key" 2>/dev/null || true)
+
+  # 2. Try .wtrconfig file only if its trusted command definitions are approved
+  if [ -z "$value" ] && [ -n "$file_key" ]; then
+    config_file=$(_wtrconfig_path)
+    if [ -n "$config_file" ] && [ -f "$config_file" ]; then
+      local definitions
+      definitions=$(_hooks_read_definitions "$config_file") || true
+      file_value=$(_hooks_definitions_get "$definitions" "$file_key" last)
+      if [ -n "$file_value" ]; then
+        if _hooks_snapshot_is_trusted "$config_file" "$definitions"; then
+          value="$file_value"
+        else
+          log_warn "Untrusted .wtrconfig $file_key skipped — run: git wtr trust"
+        fi
       fi
     fi
   fi
 
-  echo "$result"
-}
-
-# Get config with a default value and environment override
-cfg_default() {
-  local key="$1"
-  local env_var="$2"
-  local default_val="$3"
-  local file_key="${4:-}"
-
-  # 1. Environment variable
-  if [ -n "${!env_var:-}" ]; then
-    echo "${!env_var}"
-    return 0
+  # 3. Try global/system git config
+  if [ -z "$value" ]; then
+    value=$(git config --global --get "$key" 2>/dev/null || true)
   fi
 
-  # 2. Git config or file-based config
-  local val
-  val=$(cfg_get_all "$key" "$file_key" | tail -n 1)
-  if [ -n "$val" ]; then
-    echo "$val"
-    return 0
+  if [ -z "$value" ]; then
+    value=$(git config --system --get "$key" 2>/dev/null || true)
   fi
 
-  # 3. Default
-  echo "$default_val"
-}
-
-# Set a config value
-cfg_set() {
-  local key="$1"
-  local value="$2"
-  local scope="${3:-local}"
-  
-  if [ -z "$key" ] || [ -z "$value" ]; then
-    log_error "cfg_set: key and value are required"
-    return 1
+  # 4. Fall back to environment variable
+  if [ -z "$value" ] && [ -n "$env_name" ]; then
+    value=$(printenv "$env_name" 2>/dev/null) || true
   fi
-  
-  if ! git config "--$scope" "$key" "$value"; then
-    log_error "Failed to set config: $key = $value (scope: $scope)"
-    return 1
-  fi
-}
 
-# Add to a multi-valued config
-cfg_add() {
-  local key="$1"
-  local value="$2"
-  local scope="${3:-local}"
-  
-  if [ -z "$key" ] || [ -z "$value" ]; then
-    log_error "cfg_add: key and value are required"
-    return 1
-  fi
-  
-  if ! git config "--$scope" --add "$key" "$value"; then
-    log_error "Failed to add config: $key = $value (scope: $scope)"
-    return 1
-  fi
-}
-
-# Unset a config value
-cfg_unset() {
-  local key="$1"
-  local scope="${2:-local}"
-  git config "--$scope" --unset-all "$key" 2>/dev/null || true
-}
-
-# List all wtr.* config values
-cfg_list() {
-  local scope="${1:-auto}"
-  local args=()
-  [ "$scope" != "auto" ] && args+=("--$scope")
-
-  git config "${args[@]}" --list | grep "^wtr\." || true
-
-  # Also show .wtrconfig if exists and not restricted by scope
-  if [ "$scope" = "auto" ] || [ "$scope" = "local" ]; then
-    if [ -f ".wtrconfig" ]; then
-      echo "--- from .wtrconfig ---"
-      cat ".wtrconfig"
-    fi
-  fi
+  # 5. Use fallback if still empty
+  printf "%s" "${value:-$fallback}"
 }

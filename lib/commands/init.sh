@@ -1,0 +1,900 @@
+#!/usr/bin/env bash
+
+# Init command (generate shell integration for cd support)
+cmd_init() {
+  local shell="" func_name="wtr"
+
+  # Parse arguments
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h|--help)
+        show_command_help
+        ;;
+      --as)
+        if [ -z "${2:-}" ]; then
+          log_error "--as requires a function name"
+          return 1
+        fi
+        func_name="$2"
+        shift 2
+        ;;
+      -*)
+        log_error "Unknown flag: $1"
+        log_info "Run 'git wtr init --help' for usage"
+        return 1
+        ;;
+      *)
+        if [ -n "$shell" ]; then
+          log_error "Unexpected argument: $1"
+          return 1
+        fi
+        shell="$1"
+        shift
+        ;;
+    esac
+  done
+
+  # Validate function name is a legal shell identifier
+  case "$func_name" in
+    [a-zA-Z_]*) ;;
+    *)
+      log_error "Invalid function name: $func_name (must start with a letter or underscore)"
+      return 1
+      ;;
+  esac
+  # Check remaining characters (Bash 3.2 compatible — no regex operator)
+  local _stripped
+  _stripped="$(printf '%s' "$func_name" | tr -d 'a-zA-Z0-9_')"
+  if [ -n "$_stripped" ]; then
+    log_error "Invalid function name: $func_name (only letters, digits, and underscores allowed)"
+    return 1
+  fi
+
+  # Resolve generator function
+  local generator
+  case "$shell" in
+    bash) generator="_init_bash" ;;
+    zsh)  generator="_init_zsh" ;;
+    fish) generator="_init_fish" ;;
+    "")   show_command_help; return 0 ;;
+    *)
+      log_error "Unknown shell: $shell"
+      log_error "Supported shells: bash, zsh, fish"
+      log_info "Run 'git wtr init --help' for usage"
+      return 1
+      ;;
+  esac
+
+  # Generate output (cached to ~/.cache/wtr/, auto-invalidates on shell integration changes)
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/wtr"
+  local cache_file="$cache_dir/init-${func_name}.${shell}"
+  local cache_schema="${WTR_INIT_CACHE_VERSION:-7}"
+  local cache_stamp="# wtr-cache: version=${WTR_VERSION:-unknown} init=${cache_schema} func=$func_name shell=$shell"
+
+  # Return cached output if version matches
+  if [ -f "$cache_file" ]; then
+    local first_line
+    first_line="$(head -1 "$cache_file")"
+    if [ "$first_line" = "$cache_stamp" ]; then
+      tail -n +2 "$cache_file"
+      return 0
+    fi
+  fi
+
+  # Generate, output, and cache (output first so set -e cache failures don't swallow it)
+  local output
+  output="$("$generator" | sed "s/__FUNC__/$func_name/g")"
+  printf '%s\n' "$output"
+  if mkdir -p "$cache_dir" 2>/dev/null; then
+    printf '%s\n%s\n' "$cache_stamp" "$output" > "$cache_file" 2>/dev/null || true
+  fi
+}
+
+# This template is exercised against the CLI's snapshot helpers in tests.
+_init_emit_snapshot_helpers() {
+  cat <<'SNAPSHOT'
+__FUNC___hooks_read_definitions() {
+  local config_file="$1"
+  # Hex keeps NUL record boundaries and trailing value newlines in shell variables.
+  # Git emits key<LF>value<NUL>; unlike line records this encoding is injective.
+  local hook_content
+  hook_content=$(git config -z -f "$config_file" --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | od -An -v -tx1 | tr -d ' \n')
+  [ -n "$hook_content" ] || return 1
+  printf '%s\n' "$hook_content"
+}
+
+# Select values only from the captured definitions, never from the pathname.
+# An empty key displays every record for the trust confirmation.
+__FUNC___hooks_definitions_get() {
+  local definitions="$1" key="${2:-}" mode="${3:-all}" record record_key value last_value=""
+  key=$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r -d '' record; do
+    record_key="${record%%$'\n'*}"
+    value=""
+    case "$record" in *$'\n'*) value="${record#*$'\n'}" ;; esac
+    if [ -z "$key" ]; then
+      printf '%s = %q\n' "$record_key" "$value"
+    elif [ "$record_key" = "$key" ]; then
+      if [ "$mode" = last ]; then
+        last_value="$value"
+      else
+        printf '%s\n' "$value"
+      fi
+    fi
+  done < <(printf '%b' "$(printf '%s' "$definitions" | sed 's/../\\x&/g')")
+  if [ "$mode" = last ]; then printf '%s\n' "$last_value"; fi
+}
+
+SNAPSHOT
+}
+
+_init_emit_posix_trust_helpers() {
+  local shell_prelude="$1"
+  local template
+
+  # Keep the snapshot encoding and extraction identical to the CLI.
+  _init_emit_snapshot_helpers
+
+  # Keep case patterns balanced inside this substitution for Bash 3.2's parser.
+  template=$(cat <<'EOF'
+__FUNC___wtrconfig_path() {
+__SHELL_PRELUDE__
+  local _wtr_git_common_dir _wtr_repo_root
+  _wtr_git_common_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || return 1
+
+  if [ "$_wtr_git_common_dir" = ".git" ]; then
+    _wtr_repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || return 1
+  else
+    _wtr_repo_root="${_wtr_git_common_dir%/.git}"
+  fi
+
+  printf '%s/.wtrconfig\n' "$_wtr_repo_root"
+}
+
+__FUNC___hooks_current_content_hash() {
+__SHELL_PRELUDE__
+  local _wtr_config_file="$1"
+  local _wtr_hook_defs="${2:-}"
+  if [ "$#" -lt 2 ]; then
+    _wtr_hook_defs="$(__FUNC___hooks_read_definitions "$_wtr_config_file")" || return 1
+  fi
+  [ -n "$_wtr_hook_defs" ] || return 1
+  printf '%s\n' "$_wtr_hook_defs" | shasum -a 256 | cut -d' ' -f1
+}
+
+__FUNC___hooks_repo_root() {
+__SHELL_PRELUDE__
+  local _wtr_config_file="$1"
+  cd "$(dirname "$_wtr_config_file")" 2>/dev/null && pwd -P
+}
+
+__FUNC___hooks_canonical_config_path() {
+__SHELL_PRELUDE__
+  local _wtr_config_file="$1"
+  local _wtr_repo_root
+  _wtr_repo_root="$(__FUNC___hooks_repo_root "$_wtr_config_file" 2>/dev/null)" || return 1
+  printf '%s/%s\n' "$_wtr_repo_root" "$(basename "$_wtr_config_file")"
+}
+
+__FUNC___hooks_repo_identity() {
+__SHELL_PRELUDE__
+  local _wtr_repo_root="$1"
+  local _wtr_common_dir _wtr_identity _wtr_birth_time
+  _wtr_common_dir="$(git -C "$_wtr_repo_root" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  _wtr_common_dir="$(cd "$_wtr_repo_root" && cd "$_wtr_common_dir" && pwd -P)" || return 1
+  _wtr_identity="$(LC_ALL=C TZ=UTC stat -c '%d:%i:%W:%w' "$_wtr_common_dir" 2>/dev/null)" ||
+    _wtr_identity="$(LC_ALL=C stat -f '%d:%i:%.9FB' "$_wtr_common_dir" 2>/dev/null)" || return 1
+  _wtr_birth_time="${_wtr_identity#*:*:}"
+  _wtr_birth_time="${_wtr_birth_time%%:*}"
+  case "$_wtr_birth_time" in
+    (''|0|0.*|*[!0-9.]*) return 1 ;;
+  esac
+  printf '%s\n%s\n' "$_wtr_common_dir" "$_wtr_identity"
+}
+
+__FUNC___hooks_current_trust_key() {
+__SHELL_PRELUDE__
+  local _wtr_config_file="$1"
+  local _wtr_hook_hash _wtr_repo_root _wtr_repo_identity
+  local _wtr_definitions="${2:-}"
+  if [ "$#" -lt 2 ]; then
+    _wtr_definitions="$(__FUNC___hooks_read_definitions "$_wtr_config_file")" || return 1
+  fi
+  _wtr_hook_hash="$(__FUNC___hooks_current_content_hash "$_wtr_config_file" "$_wtr_definitions" 2>/dev/null)" || return 1
+  _wtr_repo_root="$(__FUNC___hooks_repo_root "$_wtr_config_file" 2>/dev/null)" || return 1
+  _wtr_repo_identity="$(__FUNC___hooks_repo_identity "$_wtr_repo_root" 2>/dev/null)" || return 1
+  printf 'v3\n%s\n%s\n%s\n' "$_wtr_repo_root" "$_wtr_repo_identity" "$_wtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
+}
+
+__FUNC___hooks_marker_matches_config() {
+__SHELL_PRELUDE__
+  local _wtr_trust_path="$1"
+  local _wtr_config_file="$2"
+  local _wtr_marker _wtr_canonical_config
+  [ -f "$_wtr_trust_path" ] || return 1
+  _wtr_marker="$(cat "$_wtr_trust_path" 2>/dev/null)" || return 1
+  _wtr_canonical_config="$(__FUNC___hooks_canonical_config_path "$_wtr_config_file" 2>/dev/null)" || return 1
+  [ "$_wtr_marker" = "$_wtr_canonical_config" ]
+}
+
+__FUNC___hooks_are_trusted() {
+__SHELL_PRELUDE__
+  local _wtr_config_file="$1"
+  local _wtr_trust_dir="$2"
+  local _wtr_trust_key
+  _wtr_trust_key="$(__FUNC___hooks_current_trust_key "$_wtr_config_file" "${3:-}" 2>/dev/null)" || return 1
+  __FUNC___hooks_marker_matches_config "$_wtr_trust_dir/$_wtr_trust_key" "$_wtr_config_file"
+}
+EOF
+)
+
+  printf '%s\n' "${template//__SHELL_PRELUDE__/$shell_prelude}"
+}
+
+_init_emit_fish_trust_helpers() {
+  local snapshot_helpers
+  snapshot_helpers=$(_init_emit_snapshot_helpers | sed 's/__FUNC___hooks_/_hooks_/g')
+  # Quote the helper source for a Fish single-quoted string.
+  snapshot_helpers="${snapshot_helpers//\\/\\\\}"
+  snapshot_helpers="${snapshot_helpers//\'/\\\'}"
+  printf "function __FUNC___hooks_read_definitions\n  command bash -c '%s\n_hooks_read_definitions \"\$1\"' bash \"\$argv[1]\"\nend\n" "$snapshot_helpers"
+  printf "function __FUNC___hooks_definitions_get\n  command bash -c '%s\n_hooks_definitions_get \"\$1\" \"\$2\"' bash \"\$argv[1]\" \"\$argv[2]\"\nend\n" "$snapshot_helpers"
+  cat <<'FISH'
+function __FUNC___wtrconfig_path
+  set -l _wtr_git_common_dir (git rev-parse --git-common-dir 2>/dev/null)
+  test -n "$_wtr_git_common_dir"; or return 1
+
+  if test "$_wtr_git_common_dir" = ".git"
+    set -l _wtr_repo_root (git rev-parse --show-toplevel 2>/dev/null)
+    test -n "$_wtr_repo_root"; or return 1
+    printf '%s/.wtrconfig\n' "$_wtr_repo_root"
+  else
+    printf '%s/.wtrconfig\n' (string replace -r '/\.git$' '' -- "$_wtr_git_common_dir")
+  end
+end
+
+function __FUNC___hooks_current_content_hash
+  set -l _wtr_config_file "$argv[1]"
+  set -l _wtr_hook_defs "$argv[2]"
+  if test (count $argv) -lt 2
+    set _wtr_hook_defs (__FUNC___hooks_read_definitions "$_wtr_config_file")
+  end
+  test -n "$_wtr_hook_defs"; or return 1
+  printf '%s\n' "$_wtr_hook_defs" | shasum -a 256 | cut -d' ' -f1
+end
+
+function __FUNC___hooks_repo_root
+  set -l _wtr_config_file "$argv[1]"
+  command sh -c 'cd "$1" 2>/dev/null && pwd -P' sh (dirname "$_wtr_config_file")
+end
+
+function __FUNC___hooks_canonical_config_path
+  set -l _wtr_config_file "$argv[1]"
+  set -l _wtr_repo_root (__FUNC___hooks_repo_root "$_wtr_config_file" 2>/dev/null)
+  test -n "$_wtr_repo_root"; or return 1
+  printf '%s/%s\n' "$_wtr_repo_root" (basename "$_wtr_config_file")
+end
+
+function __FUNC___hooks_repo_identity
+  # Keep the identity algorithm identical to the CLI and POSIX wrappers.
+  command sh -c '
+    common_dir=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null) || exit 1
+    common_dir=$(cd "$1" && cd "$common_dir" && pwd -P) || exit 1
+    identity=$(LC_ALL=C TZ=UTC stat -c "%d:%i:%W:%w" "$common_dir" 2>/dev/null) ||
+      identity=$(LC_ALL=C stat -f "%d:%i:%.9FB" "$common_dir" 2>/dev/null) || exit 1
+    birth_time="${identity#*:*:}"
+    birth_time="${birth_time%%:*}"
+    case "$birth_time" in
+      ""|0|0.*|*[!0-9.]*) exit 1 ;;
+    esac
+    printf "%s\\n%s\\n" "$common_dir" "$identity"
+  ' sh "$argv[1]"
+end
+
+function __FUNC___hooks_current_trust_key
+  set -l _wtr_config_file "$argv[1]"
+  set -l _wtr_definitions "$argv[2]"
+  if test (count $argv) -lt 2
+    set _wtr_definitions (__FUNC___hooks_read_definitions "$_wtr_config_file")
+  end
+  set -l _wtr_hook_hash (__FUNC___hooks_current_content_hash "$_wtr_config_file" "$_wtr_definitions" 2>/dev/null)
+  test -n "$_wtr_hook_hash"; or return 1
+  set -l _wtr_repo_root (__FUNC___hooks_repo_root "$_wtr_config_file" 2>/dev/null)
+  test -n "$_wtr_repo_root"; or return 1
+  set -l _wtr_repo_identity (__FUNC___hooks_repo_identity "$_wtr_repo_root" 2>/dev/null | string collect)
+  test $pipestatus[1] -eq 0; or return 1
+  test -n "$_wtr_repo_identity"; or return 1
+  printf 'v3\n%s\n%s\n%s\n' "$_wtr_repo_root" "$_wtr_repo_identity" "$_wtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
+end
+
+function __FUNC___hooks_marker_matches_config
+  set -l _wtr_trust_path "$argv[1]"
+  set -l _wtr_config_file "$argv[2]"
+  test -f "$_wtr_trust_path"; or return 1
+  set -l _wtr_marker (cat "$_wtr_trust_path" 2>/dev/null)
+  set -l _wtr_canonical_config (__FUNC___hooks_canonical_config_path "$_wtr_config_file" 2>/dev/null)
+  test "$_wtr_marker" = "$_wtr_canonical_config"
+end
+
+function __FUNC___hooks_are_trusted
+  set -l _wtr_config_file "$argv[1]"
+  set -l _wtr_trust_dir "$argv[2]"
+  set -l _wtr_trust_key (__FUNC___hooks_current_trust_key "$_wtr_config_file" "$argv[3]" 2>/dev/null)
+  test -n "$_wtr_trust_key"; or return 1
+  __FUNC___hooks_marker_matches_config "$_wtr_trust_dir/$_wtr_trust_key" "$_wtr_config_file"
+end
+FISH
+}
+
+_init_bash() {
+  cat <<'BASH'
+# git-wtr shell integration (cached to ~/.cache/wtr/)
+# Setup: see git wtr help init
+BASH
+  _init_emit_posix_trust_helpers ""
+  cat <<'BASH'
+__FUNC___run_post_cd_hooks() {
+  local dir="$1"
+  local _wtr_trust_dir="${XDG_CONFIG_HOME:-$HOME/.config}/wtr/trusted"
+
+  cd "$dir" && {
+    local _wtr_hooks _wtr_hook _wtr_seen _wtr_config_file
+    _wtr_hooks=""
+    _wtr_seen=""
+    # Read from git config (local > global > system)
+    _wtr_hooks="$(git config --get-all wtr.hook.postCd 2>/dev/null)" || true
+    # Read from .wtrconfig if it exists — only if trusted
+    _wtr_config_file="$(__FUNC___wtrconfig_path 2>/dev/null)" || true
+    if [ -f "$_wtr_config_file" ]; then
+      local _wtr_file_hooks
+      local _wtr_definitions
+      _wtr_definitions="$(__FUNC___hooks_read_definitions "$_wtr_config_file")" || true
+      _wtr_file_hooks="$(__FUNC___hooks_definitions_get "$_wtr_definitions" hooks.postCd)"
+      if [ -n "$_wtr_file_hooks" ]; then
+        # Verify trust before including .wtrconfig hooks
+        if __FUNC___hooks_are_trusted "$_wtr_config_file" "$_wtr_trust_dir" "$_wtr_definitions"; then
+          if [ -n "$_wtr_hooks" ]; then
+            _wtr_hooks="$_wtr_hooks"$'\n'"$_wtr_file_hooks"
+          else
+            _wtr_hooks="$_wtr_file_hooks"
+          fi
+        else
+          echo "__FUNC__: Untrusted .wtrconfig hooks skipped — run 'git wtr trust' to approve" >&2
+        fi
+      fi
+    fi
+    if [ -n "$_wtr_hooks" ]; then
+      # Deduplicate while preserving order
+      _wtr_seen=""
+      export WORKTREE_PATH="$dir"
+      export REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+      export BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+      while IFS= read -r _wtr_hook; do
+        [ -z "$_wtr_hook" ] && continue
+        case "$_wtr_seen" in *"|$_wtr_hook|"*) continue ;; esac
+        _wtr_seen="$_wtr_seen|$_wtr_hook|"
+        eval "$_wtr_hook" </dev/null || echo "__FUNC__: postCd hook failed: $_wtr_hook" >&2
+      done <<< "$_wtr_hooks"
+      unset WORKTREE_PATH REPO_ROOT BRANCH
+    fi
+  }
+}
+
+__FUNC__() {
+  if [ "$#" -gt 0 ] && [ "$1" = "cd" ]; then
+    shift
+    local dir
+    if [ "$#" -eq 0 ] && command -v fzf >/dev/null 2>&1; then
+      local _wtr_porcelain
+      _wtr_porcelain="$(command git wtr list --porcelain)"
+      if [ "$(printf '%s\n' "$_wtr_porcelain" | wc -l)" -le 1 ]; then
+        echo "No worktrees to pick from. Create one with: git wtr new <branch>" >&2
+        return 0
+      fi
+      local _wtr_selection _wtr_key _wtr_line _wtr_branch
+      _wtr_selection="$(printf '%s\n' "$_wtr_porcelain" | fzf \
+        --delimiter=$'\t' \
+        --with-nth=2 \
+        --ansi \
+        --layout=reverse \
+        --border \
+        --prompt='Worktree> ' \
+        --header='enter:cd │ ctrl-n:new │ ctrl-e:editor │ ctrl-a:ai │ ctrl-d:delete │ ctrl-y:copy │ ctrl-r:refresh' \
+        --expect=ctrl-n,ctrl-a,ctrl-e \
+        --preview='git -C {1} log --oneline --graph --color=always -15 2>/dev/null; echo "---"; git -C {1} status --short 2>/dev/null' \
+        --preview-window=right:50% \
+        --bind='ctrl-d:execute(git wtr rm {2} > /dev/tty 2>&1 < /dev/tty)+reload(git wtr list --porcelain)' \
+        --bind='ctrl-y:execute(git wtr copy {2} > /dev/tty 2>&1 < /dev/tty)' \
+        --bind='ctrl-r:reload(git wtr list --porcelain)')" || return 0
+      [ -z "$_wtr_selection" ] && return 0
+      _wtr_key="$(head -1 <<< "$_wtr_selection")"
+      _wtr_line="$(sed -n '2p' <<< "$_wtr_selection")"
+      if [ "$_wtr_key" = "ctrl-n" ]; then
+        printf "Branch name: " >&2
+        read -r _wtr_branch
+        [ -z "$_wtr_branch" ] && return 0
+        command git wtr new "$_wtr_branch"
+        return $?
+      fi
+      [ -z "$_wtr_line" ] && return 0
+      # ctrl-a/ctrl-e: run after fzf exits (needs full terminal for TUI apps)
+      if [ "$_wtr_key" = "ctrl-a" ]; then
+        command git wtr ai "$(printf '%s' "$_wtr_line" | cut -f2)"
+        return $?
+      elif [ "$_wtr_key" = "ctrl-e" ]; then
+        command git wtr editor "$(printf '%s' "$_wtr_line" | cut -f2)"
+        return $?
+      fi
+      dir="$(printf '%s' "$_wtr_line" | cut -f1)"
+    elif [ "$#" -eq 0 ]; then
+      echo "Usage: __FUNC__ cd <branch>" >&2
+      echo "Tip: Install fzf for an interactive picker (https://github.com/junegunn/fzf)" >&2
+      return 1
+    else
+      dir="$(command git wtr go "$@")" || return $?
+    fi
+    __FUNC___run_post_cd_hooks "$dir"
+  elif [ "$#" -gt 0 ] && { [ "$1" = "new" ] || [ "$1" = "pr" ]; }; then
+    local -a _wtr_original_args=("$@") _wtr_command_args=()
+    local _wtr_command="$1" _wtr_arg _wtr_cd=0 _wtr_before_paths _wtr_after_paths
+    local _wtr_path _wtr_new_dir="" _wtr_new_count=0 _wtr_status
+    shift
+    for _wtr_arg in "$@"; do
+      if [ "$_wtr_arg" = "--cd" ]; then
+        _wtr_cd=1
+      else
+        _wtr_command_args+=("$_wtr_arg")
+      fi
+    done
+    if [ "$_wtr_cd" -eq 1 ]; then
+      _wtr_before_paths="$(command git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')"
+      command git wtr "$_wtr_command" "${_wtr_command_args[@]}"
+      _wtr_status=$?
+      [ "$_wtr_status" -ne 0 ] && return "$_wtr_status"
+      _wtr_after_paths="$(command git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')"
+      while IFS= read -r _wtr_path; do
+        [ -z "$_wtr_path" ] && continue
+        case $'\n'"$_wtr_before_paths"$'\n' in
+          *$'\n'"$_wtr_path"$'\n'*) ;;
+          *)
+            _wtr_new_dir="$_wtr_path"
+            _wtr_new_count=$((_wtr_new_count + 1))
+            ;;
+        esac
+      done <<< "$_wtr_after_paths"
+      if [ "$_wtr_new_count" -eq 1 ]; then
+        __FUNC___run_post_cd_hooks "$_wtr_new_dir"
+        return $?
+      fi
+      echo "__FUNC__: created worktree, but could not determine new directory for --cd" >&2
+      return 0
+    fi
+    command git wtr "${_wtr_original_args[@]}"
+  else
+    command git wtr "$@"
+  fi
+}
+
+# Completion for __FUNC__ wrapper
+___FUNC___delegate_completion() {
+  local _wtr_wrapper_prefix="__FUNC__ "
+  local _wtr_delegate_prefix="git wtr "
+  COMP_WORDS=(git wtr "${COMP_WORDS[@]:1}")
+  (( COMP_CWORD += 1 ))
+  COMP_LINE="$_wtr_delegate_prefix${COMP_LINE#$_wtr_wrapper_prefix}"
+  (( COMP_POINT += ${#_wtr_delegate_prefix} - ${#_wtr_wrapper_prefix} ))
+  _git_wtr
+}
+
+___FUNC___completion() {
+  local cur
+  cur="${COMP_WORDS[COMP_CWORD]}"
+
+  if [ "$COMP_CWORD" -eq 1 ]; then
+    # First argument: cd + all git-wtr subcommands
+    COMPREPLY=($(compgen -W "cd new pr go run copy editor ai rm mv rename ls list clean doctor adapter config completion init trust help version" -- "$cur"))
+  elif [ "${COMP_WORDS[1]}" = "cd" ] && [ "$COMP_CWORD" -eq 2 ]; then
+    # Worktree names for cd
+    local worktrees
+    worktrees="1 $(git wtr list --porcelain 2>/dev/null | cut -f2 | tr '\n' ' ')"
+    COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
+  elif { [ "${COMP_WORDS[1]}" = "new" ] || [ "${COMP_WORDS[1]}" = "pr" ]; } && [[ "$cur" == -* ]]; then
+    if type _git_wtr &>/dev/null; then
+      ___FUNC___delegate_completion
+    fi
+    COMPREPLY+=($(compgen -W "--cd" -- "$cur"))
+  elif type _git_wtr &>/dev/null; then
+    # Delegate to git-wtr completions (adjust words to match expected format)
+    ___FUNC___delegate_completion
+  fi
+}
+complete -F ___FUNC___completion __FUNC__
+BASH
+}
+
+_init_zsh() {
+  cat <<'ZSH'
+# git-wtr shell integration (cached to ~/.cache/wtr/)
+# Setup: see git wtr help init
+ZSH
+  _init_emit_posix_trust_helpers "  emulate -L zsh"
+  cat <<'ZSH'
+__FUNC___run_post_cd_hooks() {
+  emulate -L zsh
+  local dir="$1"
+  local _wtr_trust_dir="${XDG_CONFIG_HOME:-$HOME/.config}/wtr/trusted"
+
+  cd "$dir" && {
+    local _wtr_hooks _wtr_hook _wtr_seen _wtr_config_file
+    _wtr_hooks=""
+    _wtr_seen=""
+    # Read from git config (local > global > system)
+    _wtr_hooks="$(git config --get-all wtr.hook.postCd 2>/dev/null)" || true
+    # Read from .wtrconfig if it exists — only if trusted
+    _wtr_config_file="$(__FUNC___wtrconfig_path 2>/dev/null)" || true
+    if [ -f "$_wtr_config_file" ]; then
+      local _wtr_file_hooks
+      local _wtr_definitions
+      _wtr_definitions="$(__FUNC___hooks_read_definitions "$_wtr_config_file")" || true
+      _wtr_file_hooks="$(__FUNC___hooks_definitions_get "$_wtr_definitions" hooks.postCd)"
+      if [ -n "$_wtr_file_hooks" ]; then
+        # Verify trust before including .wtrconfig hooks
+        if __FUNC___hooks_are_trusted "$_wtr_config_file" "$_wtr_trust_dir" "$_wtr_definitions"; then
+          if [ -n "$_wtr_hooks" ]; then
+            _wtr_hooks="$_wtr_hooks"$'\n'"$_wtr_file_hooks"
+          else
+            _wtr_hooks="$_wtr_file_hooks"
+          fi
+        else
+          echo "__FUNC__: Untrusted .wtrconfig hooks skipped — run 'git wtr trust' to approve" >&2
+        fi
+      fi
+    fi
+    if [ -n "$_wtr_hooks" ]; then
+      # Deduplicate while preserving order
+      _wtr_seen=""
+      export WORKTREE_PATH="$dir"
+      export REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+      export BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
+      while IFS= read -r _wtr_hook; do
+        [ -z "$_wtr_hook" ] && continue
+        case "$_wtr_seen" in *"|$_wtr_hook|"*) continue ;; esac
+        _wtr_seen="$_wtr_seen|$_wtr_hook|"
+        eval "$_wtr_hook" </dev/null || echo "__FUNC__: postCd hook failed: $_wtr_hook" >&2
+      done <<< "$_wtr_hooks"
+      unset WORKTREE_PATH REPO_ROOT BRANCH
+    fi
+  }
+}
+
+__FUNC__() {
+  emulate -L zsh
+  if [ "$#" -gt 0 ] && [ "$1" = "cd" ]; then
+    shift
+    local dir
+    if [ "$#" -eq 0 ] && command -v fzf >/dev/null 2>&1; then
+      local _wtr_porcelain
+      _wtr_porcelain="$(command git wtr list --porcelain)"
+      if [ "$(printf '%s\n' "$_wtr_porcelain" | wc -l)" -le 1 ]; then
+        echo "No worktrees to pick from. Create one with: git wtr new <branch>" >&2
+        return 0
+      fi
+      local _wtr_selection _wtr_key _wtr_line _wtr_branch
+      _wtr_selection="$(printf '%s\n' "$_wtr_porcelain" | fzf \
+        --delimiter=$'\t' \
+        --with-nth=2 \
+        --ansi \
+        --layout=reverse \
+        --border \
+        --prompt='Worktree> ' \
+        --header='enter:cd │ ctrl-n:new │ ctrl-e:editor │ ctrl-a:ai │ ctrl-d:delete │ ctrl-y:copy │ ctrl-r:refresh' \
+        --expect=ctrl-n,ctrl-a,ctrl-e \
+        --preview='git -C {1} log --oneline --graph --color=always -15 2>/dev/null; echo "---"; git -C {1} status --short 2>/dev/null' \
+        --preview-window=right:50% \
+        --bind='ctrl-d:execute(git wtr rm {2} > /dev/tty 2>&1 < /dev/tty)+reload(git wtr list --porcelain)' \
+        --bind='ctrl-y:execute(git wtr copy {2} > /dev/tty 2>&1 < /dev/tty)' \
+        --bind='ctrl-r:reload(git wtr list --porcelain)')" || return 0
+      [ -z "$_wtr_selection" ] && return 0
+      _wtr_key="$(head -1 <<< "$_wtr_selection")"
+      _wtr_line="$(sed -n '2p' <<< "$_wtr_selection")"
+      if [ "$_wtr_key" = "ctrl-n" ]; then
+        printf "Branch name: " >&2
+        read -r _wtr_branch
+        [ -z "$_wtr_branch" ] && return 0
+        command git wtr new "$_wtr_branch"
+        return $?
+      fi
+      [ -z "$_wtr_line" ] && return 0
+      # ctrl-a/ctrl-e: run after fzf exits (needs full terminal for TUI apps)
+      if [ "$_wtr_key" = "ctrl-a" ]; then
+        command git wtr ai "$(printf '%s' "$_wtr_line" | cut -f2)"
+        return $?
+      elif [ "$_wtr_key" = "ctrl-e" ]; then
+        command git wtr editor "$(printf '%s' "$_wtr_line" | cut -f2)"
+        return $?
+      fi
+      dir="$(printf '%s' "$_wtr_line" | cut -f1)"
+    elif [ "$#" -eq 0 ]; then
+      echo "Usage: __FUNC__ cd <branch>" >&2
+      echo "Tip: Install fzf for an interactive picker (https://github.com/junegunn/fzf)" >&2
+      return 1
+    else
+      dir="$(command git wtr go "$@")" || return $?
+    fi
+    __FUNC___run_post_cd_hooks "$dir"
+  elif [ "$#" -gt 0 ] && { [ "$1" = "new" ] || [ "$1" = "pr" ]; }; then
+    local -a _wtr_original_args _wtr_command_args
+    local _wtr_command="$1" _wtr_arg _wtr_cd=0 _wtr_before_paths _wtr_after_paths
+    local _wtr_path _wtr_new_dir="" _wtr_new_count=0 _wtr_status
+    _wtr_original_args=("$@")
+    _wtr_command_args=()
+    shift
+    for _wtr_arg in "$@"; do
+      if [ "$_wtr_arg" = "--cd" ]; then
+        _wtr_cd=1
+      else
+        _wtr_command_args+=("$_wtr_arg")
+      fi
+    done
+    if [ "$_wtr_cd" -eq 1 ]; then
+      _wtr_before_paths="$(command git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')"
+      command git wtr "$_wtr_command" "${_wtr_command_args[@]}"
+      _wtr_status=$?
+      [ "$_wtr_status" -ne 0 ] && return "$_wtr_status"
+      _wtr_after_paths="$(command git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')"
+      while IFS= read -r _wtr_path; do
+        [ -z "$_wtr_path" ] && continue
+        case $'\n'"$_wtr_before_paths"$'\n' in
+          *$'\n'"$_wtr_path"$'\n'*) ;;
+          *)
+            _wtr_new_dir="$_wtr_path"
+            _wtr_new_count=$((_wtr_new_count + 1))
+            ;;
+        esac
+      done <<< "$_wtr_after_paths"
+      if [ "$_wtr_new_count" -eq 1 ]; then
+        __FUNC___run_post_cd_hooks "$_wtr_new_dir"
+        return $?
+      fi
+      echo "__FUNC__: created worktree, but could not determine new directory for --cd" >&2
+      return 0
+    fi
+    command git wtr "${_wtr_original_args[@]}"
+  else
+    command git wtr "$@"
+  fi
+}
+
+# Completion for __FUNC__ wrapper
+___FUNC___completion() {
+  local at_subcmd=0
+  local current_word="${words[CURRENT]:-}"
+  (( CURRENT == 2 )) && at_subcmd=1
+
+  if [[ "${words[2]}" == "cd" ]] && (( CURRENT >= 3 )); then
+    # Completing worktree name after "cd"
+    if (( CURRENT == 3 )); then
+      local -a worktrees
+      worktrees=("1" ${(f)"$(git wtr list --porcelain 2>/dev/null | cut -f2)"})
+      _describe 'worktree' worktrees
+    fi
+    return
+  fi
+
+  # Delegate to _git-wtr for standard command completions
+  if (( $+functions[_git-wtr] )); then
+    _git-wtr
+  fi
+
+  if [[ "${words[2]}" == (new|pr) && "$current_word" == -* ]]; then
+    compadd -- --cd
+  fi
+
+  # When completing the subcommand position, also offer "cd"
+  if (( at_subcmd )); then
+    local -a extra=('cd:Change directory to worktree')
+    _describe 'extra commands' extra
+  fi
+}
+compdef ___FUNC___completion __FUNC__
+ZSH
+}
+
+_init_fish() {
+  cat <<'FISH'
+# git-wtr shell integration
+# Add to ~/.config/fish/config.fish:
+#   git wtr init fish | source
+FISH
+  _init_emit_fish_trust_helpers
+  cat <<'FISH'
+function __FUNC___run_post_cd_hooks
+  set -l dir "$argv[1]"
+  set -l _wtr_trust_dir "$HOME/.config/wtr/trusted"
+  if set -q XDG_CONFIG_HOME
+    set _wtr_trust_dir "$XDG_CONFIG_HOME/wtr/trusted"
+  end
+  cd $dir
+  and begin
+    set -l _wtr_hooks
+    set -l _wtr_seen
+    # Read from git config (local > global > system)
+    set -l _wtr_git_hooks (git config --get-all wtr.hook.postCd 2>/dev/null)
+    # Read from .wtrconfig if it exists — only if trusted
+    set -l _wtr_config_file (__FUNC___wtrconfig_path 2>/dev/null)
+    set -l _wtr_file_hooks
+    if test -f "$_wtr_config_file"
+      set -l _wtr_definitions (__FUNC___hooks_read_definitions "$_wtr_config_file")
+      set -l _wtr_candidate_hooks (__FUNC___hooks_definitions_get "$_wtr_definitions" hooks.postCd)
+      if test (count $_wtr_candidate_hooks) -gt 0
+        # Verify trust before including .wtrconfig hooks
+        if __FUNC___hooks_are_trusted "$_wtr_config_file" "$_wtr_trust_dir" "$_wtr_definitions"
+          set _wtr_file_hooks $_wtr_candidate_hooks
+        else
+          echo "__FUNC__: Untrusted .wtrconfig hooks skipped — run 'git wtr trust' to approve" >&2
+        end
+      end
+    end
+    # Merge and deduplicate
+    set _wtr_hooks $_wtr_git_hooks $_wtr_file_hooks
+    if test (count $_wtr_hooks) -gt 0
+      set -lx WORKTREE_PATH "$dir"
+      set -lx REPO_ROOT (git rev-parse --show-toplevel 2>/dev/null)
+      set -lx BRANCH (git rev-parse --abbrev-ref HEAD 2>/dev/null)
+      for _wtr_hook in $_wtr_hooks
+        if test -n "$_wtr_hook"
+          if not contains -- "$_wtr_hook" $_wtr_seen
+            set -a _wtr_seen "$_wtr_hook"
+            eval "$_wtr_hook"; or echo "__FUNC__: postCd hook failed: $_wtr_hook" >&2
+          end
+        end
+      end
+    end
+  end
+end
+
+function __FUNC__
+  if test (count $argv) -gt 0; and test "$argv[1]" = "cd"
+    set -l dir
+    if test (count $argv) -eq 1; and type -q fzf
+      set -l _wtr_porcelain (command git wtr list --porcelain)
+      if test (count $_wtr_porcelain) -le 1
+        echo "No worktrees to pick from. Create one with: git wtr new <branch>" >&2
+        return 0
+      end
+      set -l _wtr_selection (printf '%s\n' $_wtr_porcelain | fzf \
+        --delimiter=\t \
+        --with-nth=2 \
+        --ansi \
+        --layout=reverse \
+        --border \
+        --prompt='Worktree> ' \
+        --header='enter:cd │ ctrl-n:new │ ctrl-e:editor │ ctrl-a:ai │ ctrl-d:delete │ ctrl-y:copy │ ctrl-r:refresh' \
+        --expect=ctrl-n,ctrl-a,ctrl-e \
+        --preview='git -C {1} log --oneline --graph --color=always -15 2>/dev/null; echo "---"; git -C {1} status --short 2>/dev/null' \
+        --preview-window=right:50% \
+        --bind='ctrl-d:execute(git wtr rm {2} > /dev/tty 2>&1 < /dev/tty)+reload(git wtr list --porcelain)' \
+        --bind='ctrl-y:execute(git wtr copy {2} > /dev/tty 2>&1 < /dev/tty)' \
+        --bind='ctrl-r:reload(git wtr list --porcelain)')
+      or return 0
+      test -z "$_wtr_selection"; and return 0
+      # --expect gives two lines: key (index 1) and selection (index 2)
+      # Fish collapses empty lines in command substitution, so when Enter
+      # is pressed the empty key line disappears and count drops to 1.
+      set -l _wtr_key
+      set -l _wtr_line
+      if test (count $_wtr_selection) -eq 1
+        set _wtr_key ""
+        set _wtr_line "$_wtr_selection[1]"
+      else
+        set _wtr_key "$_wtr_selection[1]"
+        set _wtr_line "$_wtr_selection[2]"
+      end
+      if test "$_wtr_key" = "ctrl-n"
+        read -P "Branch name: " _wtr_branch
+        test -z "$_wtr_branch"; and return 0
+        command git wtr new "$_wtr_branch"
+        return $status
+      end
+      test -z "$_wtr_line"; and return 0
+      # ctrl-a/ctrl-e: run after fzf exits (needs full terminal for TUI apps)
+      if test "$_wtr_key" = "ctrl-a"
+        command git wtr ai (string split \t -- "$_wtr_line")[2]
+        return $status
+      else if test "$_wtr_key" = "ctrl-e"
+        command git wtr editor (string split \t -- "$_wtr_line")[2]
+        return $status
+      end
+      set dir (string split \t -- "$_wtr_line")[1]
+    else if test (count $argv) -eq 1
+      echo "Usage: __FUNC__ cd <branch>" >&2
+      echo "Tip: Install fzf for an interactive picker (https://github.com/junegunn/fzf)" >&2
+      return 1
+    else
+      set dir (command git wtr go $argv[2..])
+      or return $status
+    end
+    __FUNC___run_post_cd_hooks "$dir"
+  else if test (count $argv) -gt 0; and contains -- "$argv[1]" new pr
+    set -l _wtr_command "$argv[1]"
+    set -l _wtr_cd 0
+    set -l _wtr_command_args
+    for _wtr_arg in $argv[2..-1]
+      if test "$_wtr_arg" = "--cd"
+        set _wtr_cd 1
+      else
+        set -a _wtr_command_args "$_wtr_arg"
+      end
+    end
+    if test "$_wtr_cd" = "1"
+      set -l _wtr_before_paths (command git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+      command git wtr $_wtr_command $_wtr_command_args
+      set -l _wtr_status $status
+      test $_wtr_status -ne 0; and return $_wtr_status
+      set -l _wtr_after_paths (command git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+      set -l _wtr_new_paths
+      for _wtr_path in $_wtr_after_paths
+        if not contains -- "$_wtr_path" $_wtr_before_paths
+          set -a _wtr_new_paths "$_wtr_path"
+        end
+      end
+      if test (count $_wtr_new_paths) -eq 1
+        __FUNC___run_post_cd_hooks "$_wtr_new_paths[1]"
+        return $status
+      end
+      echo "__FUNC__: created worktree, but could not determine new directory for --cd" >&2
+      return 0
+    end
+    command git wtr $argv
+  else
+    command git wtr $argv
+  end
+end
+
+# Completion helpers for __FUNC__ wrapper
+function ___FUNC___needs_subcommand
+  set -l cmd (commandline -opc)
+  test (count $cmd) -eq 1
+end
+
+function ___FUNC___using_subcommand
+  set -l cmd (commandline -opc)
+  if test (count $cmd) -ge 2
+    for i in $argv
+      if test "$cmd[2]" = "$i"
+        return 0
+      end
+    end
+  end
+  return 1
+end
+
+# Subcommands (cd + all git wtr commands)
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a cd -d 'Change directory to worktree'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a new -d 'Create a new worktree'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a pr -d 'Create a pull request worktree'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a go -d 'Navigate to worktree'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a run -d 'Execute command in worktree'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a copy -d 'Copy files between worktrees'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a rm -d 'Remove worktree(s)'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a mv -d 'Rename worktree and branch'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a rename -d 'Rename worktree and branch'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a editor -d 'Open worktree in editor'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a ai -d 'Start AI coding tool'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a ls -d 'List all worktrees'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a list -d 'List all worktrees'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a clean -d 'Remove stale worktrees'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a doctor -d 'Health check'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a adapter -d 'List available adapters'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a config -d 'Manage configuration'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a completion -d 'Generate shell completions'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a init -d 'Generate shell integration'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a trust -d 'Trust .wtrconfig commands'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a version -d 'Show version'
+complete -f -c __FUNC__ -n '___FUNC___needs_subcommand' -a help -d 'Show help'
+
+# Worktree name completions for cd
+complete -f -c __FUNC__ -n '___FUNC___using_subcommand cd' -a '(echo 1; git wtr list --porcelain 2>/dev/null | cut -f2)'
+complete -f -c __FUNC__ -n '___FUNC___using_subcommand new pr' -l cd -d 'Create and cd into the new worktree'
+FISH
+}

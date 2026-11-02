@@ -1,0 +1,57 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag-name:
+        description: Release tag to bump the formula to (e.g. v2.8.0)
+        required: true
+        type: string
+
+permissions: read-all
+
+# mislav/bump-homebrew-formula-action rejects the HTTP 303 redirects GitHub
+# now serves for tarball URLs (mislav/bump-homebrew-formula-action#340), so
+# the formula is bumped directly via the tap's contents API instead.
+jobs:
+  homebrew:
+    name: Bump Homebrew formula
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.release.prerelease }}
+    steps:
+      - name: Bump Formula/git-wtr.rb in neopilot-ai/homebrew-tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG_NAME: ${{ github.event.release.tag_name || inputs.tag-name }}
+        run: |
+          set -euo pipefail
+
+          version="${TAG_NAME#v}"
+          url="https://github.com/neopilot-ai/wtr/archive/refs/tags/${TAG_NAME}.tar.gz"
+
+          curl -fsSL --retry 3 "$url" -o release.tar.gz
+          sha256=$(sha256sum release.tar.gz | awk '{print $1}')
+
+          gh api repos/neopilot-ai/homebrew-tap/contents/Formula/git-wtr.rb > formula.json
+          blob_sha=$(jq -r '.sha' formula.json)
+          jq -r '.content' formula.json | base64 -d > git-wtr.rb
+
+          if grep -qF "  url \"${url}\"" git-wtr.rb; then
+            echo "Formula already at ${TAG_NAME}; nothing to do."
+            exit 0
+          fi
+
+          sed -i "s|^  url \".*\"$|  url \"${url}\"|" git-wtr.rb
+          sed -i "s|^  sha256 \".*\"$|  sha256 \"${sha256}\"|" git-wtr.rb
+
+          grep -qF "  url \"${url}\"" git-wtr.rb
+          grep -qF "  sha256 \"${sha256}\"" git-wtr.rb
+
+          message="$(printf 'git-wtr %s\n\nAutomated update from https://github.com/neopilot-ai/wtr' "$version")"
+
+          gh api --method PUT repos/neopilot-ai/homebrew-tap/contents/Formula/git-wtr.rb \
+            -f message="$message" \
+            -f content="$(base64 -w0 git-wtr.rb)" \
+            -f sha="$blob_sha"

@@ -1,34 +1,266 @@
 # Contributing to wtr
 
-Thank you for your interest in contributing to wtr!
+Thank you for considering contributing to `git wtr`! This document provides guidelines and instructions for contributing.
+
+## How to Contribute
+
+### Reporting Issues
+
+Before creating an issue, please:
+
+1. **Search existing issues** to avoid duplicates
+2. **Provide a clear description** of the problem
+3. **Include your environment details**:
+   - OS and version (macOS, Linux distro, Windows Git Bash)
+   - Git version
+   - Shell (bash, zsh, fish)
+4. **Steps to reproduce** the issue
+5. **Expected vs actual behavior**
+
+### Suggesting Features
+
+We welcome feature suggestions! Please:
+
+1. **Check existing issues** for similar requests
+2. **Describe the use case** - why is this needed?
+3. **Propose a solution** if you have one in mind
+4. **Consider backwards compatibility** and cross-platform support
+
+## Development
+
+### Architecture Overview
+
+```
+wtr/
+├── bin/git-wtr          # Main executable (sources libs, dispatches commands)
+├── bin/wtr              # Convenience wrapper (exec bin/git-wtr)
+├── lib/                 # Core functionality
+│   ├── ui.sh           # User interface (logging, prompts)
+│   ├── config.sh       # Configuration (git-config wrapper)
+│   ├── platform.sh     # OS-specific utilities
+│   ├── core.sh         # Git worktree operations
+│   ├── copy.sh         # File copying logic
+│   ├── hooks.sh        # Hook execution
+│   ├── provider.sh     # GitHub/GitLab provider detection
+│   ├── adapters.sh     # Adapter registries, builders, and loaders
+│   └── commands/       # Command handlers (one file per command)
+│       ├── create.sh   # cmd_create + helpers
+│       ├── remove.sh   # cmd_remove
+│       ├── rename.sh   # cmd_rename
+│       ├── ...         # (16 files total, one per command)
+│       └── help.sh     # cmd_help
+├── adapters/           # Custom adapter overrides (non-registry)
+│   ├── editor/nano.sh  # nano (custom terminal behavior)
+│   └── ai/             # claude.sh, cursor.sh (custom logic)
+├── completions/        # Shell completions (bash, zsh, fish)
+└── templates/          # Example configs and scripts
+```
+
+### Coding Standards
+
+#### Shell Script Best Practices
+
+- **Bash requirement**: All scripts use Bash (use `#!/usr/bin/env bash`)
+- **Set strict mode**: Use `set -e` to exit on errors
+- **Quote variables**: Always quote variables: `"$var"`
+- **Use local variables**: Declare function-local vars with `local`
+- **Error handling**: Check return codes and provide clear error messages
+- **Target Bash 3.2+**: Code runs on Bash 3.2+ (macOS default), but Bash 4.0+ features (like globstar) are allowed where appropriate
+
+#### Code Style
+
+- **Function names**: Use `snake_case` for functions
+- **Variable names**: Use `snake_case` for variables
+- **Constants**: Use `UPPER_CASE` for constants/env vars
+- **Indentation**: 2 spaces (no tabs)
+- **Line length**: Keep lines under 100 characters when possible
+- **Comments**: Add comments for complex logic
+
+#### Example:
+
+```bash
+#!/usr/bin/env bash
+# Brief description of what this file does
+
+# Function description
+do_something() {
+  local input="$1"
+  local result
+
+  if [ -z "$input" ]; then
+    log_error "Input required"
+    return 1
+  fi
+
+  result=$(some_command "$input")
+  printf "%s" "$result"
+}
+```
+
+### Adding New Features
+
+#### Adding an Editor Adapter
+
+Most editors follow a standard pattern and can be added as a **registry entry** in `lib/adapters.sh` (no separate file needed).
+
+**Option A: Registry entry** (preferred for standard editors)
+
+Add a line to `_EDITOR_REGISTRY` in `lib/adapters.sh`:
+
+```
+yourname|yourcmd|standard|YourEditor not found. Install from https://...|flags
+```
+
+Format: `name|cmd|type|err_msg|flags` where:
+- `type`: `standard` (GUI app) or `terminal` (runs in current terminal)
+- `flags`: comma-separated — `workspace` (supports .code-workspace files), `background` (run in background)
+
+**Option B: Custom adapter file** (for editors with non-standard behavior)
+
+Create `adapters/editor/yourname.sh` implementing `editor_can_open()` and `editor_open()`. See `adapters/editor/nano.sh` for an example.
+
+**Also update**: README.md, the editor list in `docs/configuration.md`, help text in `lib/commands/help.sh`, then run `./scripts/generate-completions.sh` (the files under `completions/` are generated; CI checks them).
+
+#### Adding an AI Tool Adapter
+
+**Option A: Registry entry** (preferred for standard CLI tools)
+
+Add a line to `_AI_REGISTRY` in `lib/adapters.sh`:
+
+```
+yourname|yourcmd|YourTool not found. Install with: ...|Extra info line 1;Extra info line 2
+```
+
+Format: `name|cmd|err_msg|info_lines` (info lines are semicolon-separated).
+
+**Option B: Custom adapter file** (for tools with non-standard behavior)
+
+Create `adapters/ai/yourname.sh` implementing `ai_can_start()` and `ai_start()`. See `adapters/ai/claude.sh` for an example.
+
+**Also update**: README.md, the AI tool table in `docs/configuration.md`, help text, then regenerate completions with `./scripts/generate-completions.sh`.
+
+#### Adding Core Features
+
+For changes to core functionality (`lib/*.sh`):
+
+1. **Discuss first**: Open an issue to discuss the change
+2. **Maintain compatibility**: Avoid breaking existing configs
+3. **Add tests**: Provide test cases or manual testing instructions
+4. **Update docs**: Update README.md and help text
+5. **Consider edge cases**: Think about error conditions
+
+### Testing
+
+#### Automated Tests (BATS)
+
+Run the test suite before submitting PRs:
+
+```bash
+bats tests/            # Run all tests
+bats tests/copy_safety.bats  # Run a specific test file
+```
+
+CI runs ShellCheck + BATS automatically on all PRs (`.github/workflows/lint.yml`).
+
+#### Manual Testing
+
+Please also test your changes manually on:
+
+1. **macOS** (if available)
+2. **Linux** (Ubuntu, Fedora, or Arch recommended)
+3. **Windows Git Bash** (if available)
+
+#### Manual Testing Checklist
+
+- [ ] Create worktree with branch name
+- [ ] Create worktree with branch containing slashes (e.g., feature/auth)
+- [ ] Create from remote branch
+- [ ] Create from local branch
+- [ ] Create new branch
+- [ ] Open in editor (if testing adapters)
+- [ ] Run AI tool (if testing adapters)
+- [ ] Remove worktree by branch name
+- [ ] List worktrees
+- [ ] Test configuration commands
+- [ ] `./scripts/generate-completions.sh --check` passes (regenerate after changing adapters, config keys, commands, or flags)
+- [ ] Test `git wtr go 1` for main repo
+- [ ] Test `git wtr go <branch>` for worktrees
+
+### Pull Request Process
+
+1. **Fork the repository**
+2. **Create a feature branch**: `git checkout -b feature/my-feature`
+3. **Make your changes**
+4. **Test thoroughly** (see checklist above)
+5. **Update documentation** (README.md, help text, etc.)
+6. **Commit with clear messages**:
+   - Use present tense: "Add feature" not "Added feature"
+   - Be descriptive: "Add VS Code adapter" not "Add adapter"
+7. **Push to your fork**
+8. **Open a Pull Request** with:
+   - Clear description of changes
+   - Link to related issues
+   - Testing performed
+   - Screenshots/examples if applicable
+
+### Commit Message Format
+
+```
+<type>: <short description>
+
+<optional longer description>
+
+<optional footer>
+```
+
+**Types:**
+
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `refactor`: Code refactoring (no functional changes)
+- `test`: Adding or updating tests
+- `chore`: Maintenance tasks
+
+**Examples:**
+
+```
+feat: add JetBrains IDE adapter
+
+Add support for opening worktrees in IntelliJ, PyCharm, and other
+JetBrains IDEs via the 'idea' command.
+
+Closes #42
+```
+
+```
+fix: handle spaces in worktree paths
+
+Properly quote paths in all commands to support directories with spaces.
+```
 
 ## Design Principles
-1. **Cross-platform first** - Code must work on macOS, Linux, and Windows Git Bash.
-2. **No external dependencies** - Only require git and basic POSIX shell utilities.
-3. **Configuration over flags** - Users set defaults once, then use simple commands.
-4. **Fail safely** - Validate inputs, check return codes, provide clear error messages.
-5. **Stay modular** - Keep functions small, focused, and reusable.
-6. **User-friendly** - Prioritize good UX with clear output and helpful error messages.
 
-## Development Workflow
-1. Fork and clone the repository.
-2. Make your changes in a feature branch.
-3. Test your changes manually and with BATS.
-4. Submit a pull request.
+When contributing, please keep these principles in mind:
 
-## Coding Standards
-- Use **2 spaces** for indentation.
-- Use `snake_case` for function and local variable names.
-- Use `UPPER_SNAKE_CASE` for global constants.
-- Always quote variables: `"$VAR"`.
-- Use `local` for all variables inside functions.
-- Prefer `printf` over `echo` for portability, or use `echo -e` if supported.
+1. **Cross-platform first** - Code should work on macOS, Linux, and Windows
+2. **No external dependencies** - Avoid requiring tools beyond git and basic shell
+3. **Config over code** - Prefer configuration over hardcoding behavior
+4. **Fail safely** - Validate inputs and provide clear error messages
+5. **Stay modular** - Keep functions small and focused
+6. **User-friendly** - Prioritize good UX and clear documentation
 
-## Testing Checklist
-Before submitting a PR, ensure you have tested:
-- Creating worktrees with various branch names (with/without slashes).
-- Removing worktrees (with/without branch deletion).
-- Configuration set/get/unset.
-- Editor and AI tool integration.
-- File copying and directory copying logic.
-- Shell completions.
+## Community
+
+- **Be respectful** and constructive
+- **Help others** who are learning
+- **Share knowledge** and best practices
+- **Have fun!** This is a community project
+
+## Questions?
+
+- Open an issue for questions
+- Check existing issues and docs first
+- Be patient - maintainers are volunteers
+
+Thank you for contributing! 🎉

@@ -1,10 +1,64 @@
-# Editor Adapter Contract
+---
+applyTo: adapters/editor/**/*.sh
+---
 
-- Must be placed in `adapters/editor/`.
-- Function-based adapters must implement:
-  - `editor_can_open()`: Returns 0 if the editor is available in the environment.
-  - `editor_open(path, [workspace])`: Opens the editor at the specified path.
-- Script-based adapters must:
-  - Support `open` as the first argument.
-  - Accept `path` as the second argument.
-  - Accept `workspace_path` as the third argument (optional).
+# Editor Adapter Instructions
+
+## When to Use a File vs Registry
+
+Most editors are defined as **registry entries** in `lib/adapters.sh` — no adapter file needed.
+Only create an adapter file in `adapters/editor/` for editors that need **custom behavior** beyond what the standard/terminal builders provide (see `nano.sh` for an example).
+
+## Adding a Standard Editor (Registry)
+
+Add a line to `_EDITOR_REGISTRY` in `lib/adapters.sh`:
+
+```
+yourname|yourcmd|standard|EditorName not found. Install from https://...|flags
+```
+
+Format: `name|cmd|type|err_msg|flags`
+- `type`: `standard` (GUI app) or `terminal` (runs in terminal)
+- `flags`: comma-separated — `workspace` (supports .code-workspace), `background` (terminal bg)
+
+## Adding a Custom Editor (File Override)
+
+Create `adapters/editor/<name>.sh` implementing:
+
+```bash
+#!/usr/bin/env bash
+# EditorName adapter
+
+editor_can_open() {
+  command -v editor-cli >/dev/null 2>&1
+}
+
+editor_open() {
+  local path="$1"
+  if ! editor_can_open; then
+    log_error "EditorName not found. Install from https://..."
+    return 1
+  fi
+  editor-cli "$path"
+}
+```
+
+File-based adapters take precedence over registry entries of the same name.
+
+**Also update**:
+
+- README.md (setup instructions)
+- Completions: run `./scripts/generate-completions.sh` (registry names are picked up automatically; the files under `completions/` are generated and checked in CI)
+- Help text in `lib/commands/help.sh` (`_help_editor`)
+- Editor list (**Setup editors**) in `docs/configuration.md`
+
+## Contract & Guidelines
+
+- Required functions: `editor_can_open` (probe via `command -v`), `editor_open <path>`.
+- Quote all paths; support spaces. Avoid changing PWD globally—no subshell needed (editor opens path).
+- Use `log_error` with actionable install guidance if command missing.
+- Keep adapter lean: no project scans, no blocking prompts.
+- Naming: file/registry name = tool name (`zed` → `zed` flag). Avoid uppercase.
+- Update: README editor list, `docs/configuration.md` editor list, help text, then regenerate completions.
+- Fallback behavior: if editor absent, fail clearly; do NOT silently defer to file browser.
+- Inspect function definition if needed: `declare -f editor_open`.

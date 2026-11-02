@@ -1,0 +1,154 @@
+#!/usr/bin/env bats
+
+load test_helper
+
+setup() {
+  setup_integration_repo
+  export XDG_CONFIG_HOME="$BATS_TMPDIR/wtr-trust-config-$$"
+  source_wtr_commands
+}
+
+teardown() {
+  rm -rf "$XDG_CONFIG_HOME"
+  teardown_integration_repo
+}
+
+@test "cmd_trust marks executable commands as trusted after confirmation" {
+  cat > "$TEST_REPO/.wtrconfig" <<'EOF'
+[hooks]
+  postCd = echo hi
+[defaults]
+  ai = claude
+EOF
+
+  prompt_yes_no() { return 0; }
+
+  run cmd_trust
+  [ "$status" -eq 0 ]
+  _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+}
+
+@test "cmd_trust returns an error when the trust marker cannot be written" {
+  cat > "$TEST_REPO/.wtrconfig" <<'EOF'
+[hooks]
+  postCd = echo hi
+EOF
+
+  prompt_yes_no() { return 0; }
+  _hooks_write_trust_marker() { return 1; }
+
+  local output_file="$BATS_TMPDIR/cmd-trust-failure.out"
+  local rc=0
+  if cmd_trust >"$output_file" 2>&1; then
+    rc=0
+  else
+    rc=$?
+  fi
+
+  [ "$rc" -eq 1 ]
+  grep -F "Failed to mark executable commands as trusted" "$output_file"
+}
+
+@test "cmd_trust trusts the reviewed snapshot and fails if hooks change during confirmation" {
+  cat > "$TEST_REPO/.wtrconfig" <<'EOF'
+[hooks]
+  postCd = echo reviewed
+EOF
+
+  local reviewed_trust_path
+  reviewed_trust_path=$(_hooks_trust_path "$TEST_REPO/.wtrconfig")
+
+  prompt_yes_no() {
+    cat > "$TEST_REPO/.wtrconfig" <<'EOF'
+[hooks]
+  postCd = echo changed
+EOF
+    return 0
+  }
+
+  local output_file="$BATS_TMPDIR/cmd-trust-changed.out"
+  local rc=0
+  if cmd_trust >"$output_file" 2>&1; then
+    rc=0
+  else
+    rc=$?
+  fi
+
+  [ "$rc" -eq 1 ]
+  [ -f "$reviewed_trust_path" ]
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+  grep -F "Executable commands or repository identity changed during review; current commands remain untrusted" "$output_file"
+}
+
+@test "cmd_trust writes the reviewed marker when hooks change during confirmation" {
+  cat > "$TEST_REPO/.wtrconfig" <<'EOF'
+[hooks]
+  postCd = echo original
+EOF
+
+  local reviewed_marker
+  reviewed_marker="$(_hooks_trust_path "$TEST_REPO/.wtrconfig")"
+
+  prompt_yes_no() {
+    cat > "$TEST_REPO/.wtrconfig" <<'EOF'
+[hooks]
+  postCd = echo changed
+EOF
+    return 0
+  }
+
+  run cmd_trust
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"Executable commands or repository identity changed during review; current commands remain untrusted"* ]]
+  [ -f "$reviewed_marker" ]
+
+  run _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+  [ "$status" -eq 1 ]
+}
+
+@test "cmd_trust rejects repository replacement during confirmation with identical definitions" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'sh ./bootstrap.sh'
+  printf 'echo original\n' > "$TEST_REPO/bootstrap.sh"
+  prompt_yes_no() {
+    mv "$TEST_REPO/.git" "$TEST_REPO/original-git"
+    git -C "$TEST_REPO" init --quiet
+    printf 'echo replacement\n' > "$TEST_REPO/bootstrap.sh"
+    return 0
+  }
+  run cmd_trust
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"repository identity changed during review"* ]]
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+}
+
+@test "cmd_trust fails closed when repository identity disappears during confirmation" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  prompt_yes_no() {
+    mv "$TEST_REPO/.git" "$TEST_REPO/original-git"
+    return 0
+  }
+  run cmd_trust
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"repository identity changed during review"* ]]
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+}
+
+@test "cmd_trust snapshots identity before reading definitions" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'sh ./bootstrap.sh'
+  printf 'echo original\n' > "$TEST_REPO/bootstrap.sh"
+  _hooks_read_definitions() {
+    local definitions
+    definitions=$(git config -f "$1" --get-regexp '^hooks\.') || return 1
+    if [ ! -d "$TEST_REPO/original-git" ]; then
+      mv "$TEST_REPO/.git" "$TEST_REPO/original-git"
+      git -C "$TEST_REPO" init --quiet
+      printf 'echo replacement\n' > "$TEST_REPO/bootstrap.sh"
+    fi
+    printf '%s\n' "$definitions"
+  }
+  prompt_yes_no() { return 0; }
+  run cmd_trust
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"repository identity changed during review"* ]]
+  [ ! -f "$(_hooks_current_trust_path "$TEST_REPO/.wtrconfig")" ]
+}

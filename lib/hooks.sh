@@ -1,86 +1,428 @@
-# hooks.sh - hook runner
+#!/usr/bin/env bash
+# Hook execution system
 
-# Run hooks in a specific directory
-# args: hook_name, target_dir, [env_vars...]
-run_hooks_in() {
-  local hook_name="$1"
-  local target_dir="$2"
-  shift 2 || true
+# ── Hook trust model ────────────────────────────────────────────────────
+# Hooks and executable defaults from .wtrconfig files (committed to
+# repositories) require explicit user approval before use. This prevents
+# malicious contributors from injecting arbitrary commands via shared config
+# files.
+#
+# Trust state is stored in ~/.config/wtr/trusted/<key>
+# where <key> binds the canonical repo root, Git directory identity and trusted
+# content hash. Replacing a repository at the same path requires new approval.
+# Trust approves command definitions, including any code they delegate to; it
+# does not pin script contents, dependencies or repository snapshot state.
 
-  [ "${WTR_SKIP_HOOKS:-}" = "1" ] && return 0
+_WTR_TRUST_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/wtr/trusted"
 
+# Read all trusted command definitions from a .wtrconfig file.
+# Usage: _hooks_read_definitions <config_file>
+_hooks_read_definitions() {
+  local config_file="$1"
+  # Hex keeps NUL record boundaries and trailing value newlines in shell variables.
+  # Git emits key<LF>value<NUL>; unlike line records this encoding is injective.
+  local hook_content
+  hook_content=$(git config -z -f "$config_file" --get-regexp '^hooks\.|^defaults\.editor$|^defaults\.ai$' 2>/dev/null | od -An -v -tx1 | tr -d ' \n')
+  [ -n "$hook_content" ] || return 1
+  printf '%s\n' "$hook_content"
+}
+
+# Select values only from the captured definitions, never from the pathname.
+# An empty key displays every record for the trust confirmation.
+_hooks_definitions_get() {
+  local definitions="$1" key="${2:-}" mode="${3:-all}" record record_key value last_value=""
+  key=$(printf '%s' "$key" | tr '[:upper:]' '[:lower:]')
+  while IFS= read -r -d '' record; do
+    record_key="${record%%$'\n'*}"
+    value=""
+    case "$record" in *$'\n'*) value="${record#*$'\n'}" ;; esac
+    if [ -z "$key" ]; then
+      printf '%s = %q\n' "$record_key" "$value"
+    elif [ "$record_key" = "$key" ]; then
+      if [ "$mode" = last ]; then
+        last_value="$value"
+      else
+        printf '%s\n' "$value"
+      fi
+    fi
+  done < <(printf '%b' "$(printf '%s' "$definitions" | sed 's/../\\x&/g')")
+  if [ "$mode" = last ]; then printf '%s\n' "$last_value"; fi
+}
+
+# Validate a captured snapshot against its repository-scoped marker.
+_hooks_snapshot_is_trusted() {
+  local config_file="$1" definitions="$2" trust_path
+  [ -n "$definitions" ] || return 0
+  trust_path=$(_hooks_reviewed_trust_path "$config_file" "$definitions") || return 1
+  _hooks_marker_matches_config "$trust_path" "$config_file"
+}
+
+# Compute a content hash for trusted command definitions.
+# Usage: _hooks_content_hash <hook_content>
+_hooks_content_hash() {
+  local hook_content="$1"
+  [ -n "$hook_content" ] || return 1
+  printf '%s\n' "$hook_content" | shasum -a 256 | cut -d' ' -f1
+}
+
+# Compute a content hash of all current trusted command entries in a .wtrconfig file.
+# Usage: _hooks_current_content_hash <config_file>
+_hooks_current_content_hash() {
+  local config_file="$1"
+  local hook_content
+  hook_content=$(_hooks_read_definitions "$config_file") || return 1
+  _hooks_content_hash "$hook_content"
+}
+
+# Backward-compatible alias used by tests and older call sites.
+_hooks_file_hash() {
+  _hooks_current_content_hash "$1"
+}
+
+# Resolve the canonical repository root for a .wtrconfig file
+# Usage: _hooks_repo_root <config_file>
+_hooks_repo_root() {
+  local config_file="$1"
+  (
+    cd "$(dirname "$config_file")" 2>/dev/null &&
+    pwd -P
+  )
+}
+
+# Identify this repository instance, rather than just its reusable path.
+# Use the common Git directory so normal commits and linked worktrees do not
+# invalidate approval. Require a known birth time and preserve nanoseconds to
+# distinguish rapid inode reuse. Filesystems without birth times fail closed.
+# GNU %W is whole seconds even with precision; %w retains birth nanoseconds.
+# Do not use a repository-controlled config value or file as an identity token.
+_hooks_repo_identity() {
+  local repo_root="$1"
+  local common_dir identity birth_time
+  common_dir=$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null) || return 1
+  common_dir=$(cd "$repo_root" && cd "$common_dir" && pwd -P) || return 1
+  identity=$(LC_ALL=C TZ=UTC stat -c '%d:%i:%W:%w' "$common_dir" 2>/dev/null) ||
+    identity=$(LC_ALL=C stat -f '%d:%i:%.9FB' "$common_dir" 2>/dev/null) || return 1
+  birth_time="${identity#*:*:}"
+  birth_time="${birth_time%%:*}"
+  case "$birth_time" in
+    ''|0|0.*|*[!0-9.]*) return 1 ;;
+  esac
+  printf '%s\n%s\n' "$common_dir" "$identity"
+}
+
+# Resolve the canonical path for a .wtrconfig file
+# Usage: _hooks_canonical_config_path <config_file>
+_hooks_canonical_config_path() {
+  local config_file="$1"
   local repo_root
-  repo_root=$(discover_repo_root) || return 0
+  repo_root=$(_hooks_repo_root "$config_file") || return 1
+  printf '%s/%s\n' "$repo_root" "$(basename "$config_file")"
+}
 
-  local hook_files=()
-  # Search order:
-  # 1. .wtr/hooks/<name>
-  # 2. .wtr/hooks/<name>.d/*
-  # 3. Legacy hooks/<name>
-  
-  [ -f "$repo_root/.wtr/hooks/$hook_name" ] && hook_files+=("$repo_root/.wtr/hooks/$hook_name")
-  
-  if [ -d "$repo_root/.wtr/hooks/$hook_name.d" ]; then
-    while read -r f; do
-      hook_files+=("$f")
-    done < <(find "$repo_root/.wtr/hooks/$hook_name.d" -maxdepth 1 -type f -executable | sort)
+# Compute the repo-scoped trust key for reviewed trusted command content
+# Usage: _hooks_reviewed_trust_key <config_file> <hook_content> [repo_identity]
+_hooks_reviewed_trust_key() {
+  local config_file="$1"
+  local hook_content="$2"
+  local repo_identity="${3:-}"
+  local hash repo_root
+  hash=$(_hooks_content_hash "$hook_content") || return 1
+  repo_root=$(_hooks_repo_root "$config_file") || return 1
+  if [ -z "$repo_identity" ]; then
+    repo_identity=$(_hooks_repo_identity "$repo_root") || return 1
   fi
-  
-  [ -f "$repo_root/hooks/$hook_name" ] && hook_files+=("$repo_root/hooks/$hook_name")
+  printf 'v3\n%s\n%s\n%s\n' "$repo_root" "$repo_identity" "$hash" | shasum -a 256 | cut -d' ' -f1
+}
 
-  # Also check config-based hooks (wtr.hook.<name>)
-  local config_hooks
-  config_hooks=$(cfg_get_all "wtr.hook.$hook_name")
+# Compute the repo-scoped trust key for the current trusted command content
+# Usage: _hooks_current_trust_key <config_file>
+_hooks_current_trust_key() {
+  local config_file="$1"
+  local hook_content
+  hook_content=$(_hooks_read_definitions "$config_file") || return 1
+  _hooks_reviewed_trust_key "$config_file" "$hook_content"
+}
 
-  # Execute
-  for hook in "${hook_files[@]}"; do
-    log_info "Running hook: $(basename "$hook")"
-    (
-      # Export standard env vars
-      export WTR_HOOK="$hook_name"
-      export WTR_TARGET_DIR="$target_dir"
-      export WTR_REPO_ROOT="$repo_root"
-      # Export additional vars passed as args
-      [ -n "${*:-}" ] && export "$@"
-      
-      cd "$target_dir" && bash "$hook" "$target_dir"
-    ) || {
-      log_error "Hook failed: $(basename "$hook")"
-      return 1
-    }
-  done
+# Backward-compatible alias used by existing call sites.
+_hooks_trust_key() {
+  _hooks_current_trust_key "$1"
+}
 
-  if [ -n "$config_hooks" ]; then
-    while read -r cmd; do
-      [ -z "$cmd" ] && continue
-      log_info "Running config hook: $cmd"
-      (
-        export WTR_HOOK="$hook_name"
-        export WTR_TARGET_DIR="$target_dir"
-        export WTR_REPO_ROOT="$repo_root"
-        [ -n "${*:-}" ] && export "$@"
-        
-        cd "$target_dir" && bash -c "$cmd"
-      ) || {
-        log_error "Config hook failed: $cmd"
-        return 1
-      }
-    done <<< "$config_hooks"
+# Resolve the trust marker path for reviewed trusted command content
+# Usage: _hooks_reviewed_trust_path <config_file> <hook_content> [repo_identity]
+_hooks_reviewed_trust_path() {
+  local config_file="$1"
+  local hook_content="$2"
+  local repo_identity="${3:-}"
+  local trust_key
+  trust_key=$(_hooks_reviewed_trust_key "$config_file" "$hook_content" "$repo_identity") || return 1
+  printf '%s/%s\n' "$_WTR_TRUST_DIR" "$trust_key"
+}
+
+# Resolve the trust marker path for a .wtrconfig file
+# Usage: _hooks_current_trust_path <config_file>
+_hooks_current_trust_path() {
+  local config_file="$1"
+  local trust_key
+  trust_key=$(_hooks_current_trust_key "$config_file") || return 1
+  printf '%s/%s\n' "$_WTR_TRUST_DIR" "$trust_key"
+}
+
+# Backward-compatible aliases used by existing call sites.
+_hooks_trust_path() {
+  _hooks_current_trust_path "$1"
+}
+
+_hooks_trust_path_for_content() {
+  _hooks_reviewed_trust_path "$1" "$2"
+}
+
+# Check whether a trust marker matches the canonical config path.
+# Usage: _hooks_marker_matches_config <trust_path> <config_file>
+_hooks_marker_matches_config() {
+  local trust_path="$1"
+  local config_file="$2"
+  local marker_content canonical_config_file
+
+  [ -f "$trust_path" ] || return 1
+  marker_content="$(cat "$trust_path" 2>/dev/null)" || return 1
+  canonical_config_file=$(_hooks_canonical_config_path "$config_file") || return 1
+  [ "$marker_content" = "$canonical_config_file" ]
+}
+
+# Check if .wtrconfig command definitions are trusted for the current repository
+# Usage: _hooks_are_trusted <config_file>
+# Returns: 0 if trusted (or no trusted command definitions), 1 if untrusted
+_hooks_are_trusted() {
+  local config_file="$1"
+  [ ! -f "$config_file" ] && return 0
+
+  local hook_content trust_path
+  hook_content=$(_hooks_read_definitions "$config_file") || return 0
+  _hooks_snapshot_is_trusted "$config_file" "$hook_content"
+}
+
+# Write a trust marker that matches the reviewed command definitions
+# Usage: _hooks_write_trust_marker <trust_path> [config_file]
+_hooks_write_trust_marker() {
+  local trust_path="$1"
+  local config_file="${2:-}"
+  local temp_path=""
+  local canonical_config_file=""
+
+  mkdir -p "$_WTR_TRUST_DIR" || return 1
+  canonical_config_file=$(_hooks_canonical_config_path "$config_file") || return 1
+  temp_path="$(mktemp "$_WTR_TRUST_DIR/.trust.XXXXXX")" || return 1
+
+  if ! printf '%s\n' "$canonical_config_file" > "$temp_path"; then
+    rm -f "$temp_path"
+    return 1
+  fi
+
+  if ! mv -f "$temp_path" "$trust_path"; then
+    rm -f "$temp_path"
+    return 1
+  fi
+}
+
+# Mark .wtrconfig command definitions as trusted
+# Usage: _hooks_mark_trusted <config_file>
+_hooks_mark_trusted() {
+  local config_file="$1"
+  local hook_content trust_path
+  hook_content=$(_hooks_read_definitions "$config_file") || return 0
+  trust_path=$(_hooks_reviewed_trust_path "$config_file" "$hook_content") || return 1
+
+  _hooks_write_trust_marker "$trust_path" "$config_file"
+}
+
+# Get hooks, filtering out untrusted .wtrconfig hooks with a warning
+# Usage: _hooks_get_trusted <phase>
+_hooks_get_trusted() {
+  local phase="$1"
+
+  # Always include hooks from git config (user controls their own .git/config)
+  local git_hooks
+  git_hooks=$(git config --get-all "wtr.hook.$phase" 2>/dev/null) || true
+
+  # Check .wtrconfig trust before including its hooks
+  local config_file
+  config_file=$(_wtrconfig_path)
+  local file_hooks=""
+
+  if [ -n "$config_file" ] && [ -f "$config_file" ]; then
+    local definitions
+    definitions=$(_hooks_read_definitions "$config_file") || true
+    file_hooks=$(_hooks_definitions_get "$definitions" "hooks.$phase")
+    if ! _hooks_snapshot_is_trusted "$config_file" "$definitions"; then
+      if [ -n "$file_hooks" ]; then
+        log_warn "Untrusted .wtrconfig hooks for '$phase' phase — skipping"
+        log_warn "Review hooks in $config_file, then run: git wtr trust"
+      fi
+      file_hooks=""
+    fi
+  fi
+
+  # Merge and deduplicate
+  {
+    [ -n "$git_hooks" ] && printf '%s\n' "$git_hooks"
+    [ -n "$file_hooks" ] && printf '%s\n' "$file_hooks"
+  } | awk '!seen[$0]++'
+}
+
+# Report the outcome a successful hook phase will have without executing it.
+# Usage: _hooks_phase_status <phase>
+# Prints one of: none, ran, skipped-untrusted, partial
+_hooks_phase_status() {
+  local phase="$1"
+  local git_hooks="" config_file="" file_hooks=""
+  local has_runnable=0 has_untrusted=0
+
+  git_hooks=$(git config --get-all "wtr.hook.$phase" 2>/dev/null) || true
+  [ -n "$git_hooks" ] && has_runnable=1
+
+  config_file=$(_wtrconfig_path) || true
+  if [ -n "$config_file" ] && [ -f "$config_file" ]; then
+    file_hooks=$(git config -f "$config_file" --get-all "hooks.$phase" 2>/dev/null) || true
+    if [ -n "$file_hooks" ]; then
+      if _hooks_are_trusted "$config_file"; then
+        has_runnable=1
+      else
+        has_untrusted=1
+      fi
+    fi
+  fi
+
+  if [ "$has_runnable" -eq 1 ] && [ "$has_untrusted" -eq 1 ]; then
+    printf "partial"
+  elif [ "$has_runnable" -eq 1 ]; then
+    printf "ran"
+  elif [ "$has_untrusted" -eq 1 ]; then
+    printf "skipped-untrusted"
+  else
+    printf "none"
+  fi
+}
+
+# Run hooks for a specific phase
+# Usage: run_hooks phase [env_vars...]
+# Example: run_hooks postCreate REPO_ROOT="$root" WORKTREE_PATH="$path"
+run_hooks() {
+  local phase="$1"
+  shift
+
+  # Get hooks, filtering untrusted .wtrconfig hooks
+  local hooks
+  hooks=$(_hooks_get_trusted "$phase")
+
+  if [ -z "$hooks" ]; then
+    # No hooks configured for this phase
+    return 0
+  fi
+
+  log_step "Running $phase hooks..."
+
+  local hook_count=0
+  local failed=0
+
+  # Capture environment variable assignments in array to preserve quoting
+  local envs=("$@")
+
+  # Execute each hook in a subshell to isolate side effects
+  while IFS= read -r hook; do
+    [ -z "$hook" ] && continue
+
+    hook_count=$((hook_count + 1))
+    log_info "Hook $hook_count: $hook"
+
+    # Run hook in subshell with properly quoted environment exports
+    if (
+      # Export each KEY=VALUE exactly as passed, safely quoted
+      for kv in "${envs[@]}"; do
+        # shellcheck disable=SC2163
+        export "$kv"
+      done
+      # Execute the hook
+      eval "$hook"
+    ) </dev/null; then
+      log_info "Hook $hook_count completed successfully"
+    else
+      local rc=$?
+      log_error "Hook $hook_count failed with exit code $rc"
+      failed=$((failed + 1))
+    fi
+  done <<EOF
+$hooks
+EOF
+
+  if [ "$failed" -gt 0 ]; then
+    log_warn "$failed hook(s) failed"
+    return 1
   fi
 
   return 0
 }
 
-# Run hooks in the current context (main repo)
-run_hooks() {
-  local hook_name="$1"
-  shift
-  local repo_root
-  repo_root=$(discover_repo_root) || return 0
-  run_hooks_in "$hook_name" "$repo_root" "$@"
+# Run hooks in a specific directory
+# Usage: run_hooks_in phase directory [env_vars...]
+run_hooks_in() {
+  local phase="$1"
+  local directory="$2"
+  shift 2
+
+  local old_pwd
+  old_pwd=$(pwd)
+
+  if [ ! -d "$directory" ]; then
+    log_error "Directory does not exist: $directory"
+    return 1
+  fi
+
+  cd "$directory" || return 1
+
+  run_hooks "$phase" "$@"
+  local result=$?
+
+  cd "$old_pwd" || return 1
+
+  return $result
 }
 
-# Legacy alias
-run_hook() {
-  run_hooks_in "$1" "$2"
+# Run hooks in current shell without subshell isolation
+# Env vars set by hooks (e.g., source ./vars.sh) persist in the calling shell.
+# IMPORTANT: Call from within a subshell to avoid polluting the main script.
+# Usage: run_hooks_export phase [env_vars...]
+# Example: ( cd "$dir" && run_hooks_export postCd REPO_ROOT="$root" )
+run_hooks_export() {
+  local phase="$1"
+  shift
+
+  local hooks
+  hooks=$(_hooks_get_trusted "$phase")
+
+  if [ -z "$hooks" ]; then
+    return 0
+  fi
+
+  log_step "Running $phase hooks..."
+
+  # Export env vars so hooks and child processes can see them
+  local kv
+  for kv in "$@"; do
+    # shellcheck disable=SC2163
+    export "$kv"
+  done
+
+  local hook_count=0
+  while IFS= read -r hook; do
+    [ -z "$hook" ] && continue
+
+    hook_count=$((hook_count + 1))
+    log_info "Hook $hook_count: $hook"
+
+    # eval directly (no subshell) so exports persist
+    eval "$hook" </dev/null || log_warn "Hook $hook_count failed (continuing)"
+  done <<EOF
+$hooks
+EOF
 }
