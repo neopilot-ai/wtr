@@ -1,6 +1,6 @@
-# Commands: config - configuration management
-# Handles wtr config operations (get, set, add, unset, list)
+#!/usr/bin/env bash
 
+# Config command
 cmd_config() {
   local scope="auto"
   local action="" key="" value=""
@@ -20,6 +20,9 @@ cmd_config() {
       --system|system)
         scope="system"
         shift
+        ;;
+      -h|--help)
+        show_command_help
         ;;
       get|set|unset|add|list)
         action="$1"
@@ -71,7 +74,7 @@ cmd_config() {
   case "$action" in
     get)
       if [ -z "$key" ]; then
-        log_error "Usage: wtr config get <key> [--local|--global|--system]"
+        log_error "Usage: git wtr config get <key> [--local|--global|--system]"
         exit 1
       fi
       # Warn on unexpected extra arguments
@@ -82,36 +85,45 @@ cmd_config() {
       ;;
     set)
       if [ -z "$key" ] || [ -z "$value" ]; then
-        log_error "Usage: wtr config set <key> <value> [--local|--global]"
+        log_error "Usage: git wtr config set <key> <value> [--local|--global]"
         exit 1
       fi
       # Warn on unexpected extra arguments
       if [ -n "$extra_args" ]; then
         log_warn "set action: ignoring extra arguments: $extra_args"
       fi
+      if ! _cfg_is_known_key "$key"; then
+        log_warn "Unknown config key: $key (not a recognized wtr.* key)"
+      fi
       cfg_set "$key" "$value" "$resolved_scope"
       log_info "Config set: $key = $value ($resolved_scope)"
       ;;
     add)
       if [ -z "$key" ] || [ -z "$value" ]; then
-        log_error "Usage: wtr config add <key> <value> [--local|--global]"
+        log_error "Usage: git wtr config add <key> <value> [--local|--global]"
         exit 1
       fi
       # Warn on unexpected extra arguments
       if [ -n "$extra_args" ]; then
         log_warn "add action: ignoring extra arguments: $extra_args"
       fi
+      if ! _cfg_is_known_key "$key"; then
+        log_warn "Unknown config key: $key (not a recognized wtr.* key)"
+      fi
       cfg_add "$key" "$value" "$resolved_scope"
       log_info "Config added: $key = $value ($resolved_scope)"
       ;;
     unset)
       if [ -z "$key" ]; then
-        log_error "Usage: wtr config unset <key> [--local|--global]"
+        log_error "Usage: git wtr config unset <key> [--local|--global]"
         exit 1
       fi
       # Warn on unexpected extra arguments (including value which unset doesn't use)
       if [ -n "$value" ] || [ -n "$extra_args" ]; then
         log_warn "unset action: ignoring extra arguments: ${value}${value:+ }${extra_args}"
+      fi
+      if ! _cfg_is_known_key "$key"; then
+        log_warn "Unknown config key: $key (not a recognized wtr.* key)"
       fi
       cfg_unset "$key" "$resolved_scope"
       log_info "Config unset: $key ($resolved_scope)"
@@ -126,8 +138,8 @@ cmd_config() {
       ;;
     *)
       log_error "Unknown config action: $action"
-      log_error "Usage: wtr config [list] [--local|--global|--system]"
-      log_error "       wtr config {get|set|add|unset} <key> [value] [--local|--global]"
+      log_error "Usage: git wtr config [list] [--local|--global|--system]"
+      log_error "       git wtr config {get|set|add|unset} <key> [value] [--local|--global]"
       exit 1
       ;;
   esac
