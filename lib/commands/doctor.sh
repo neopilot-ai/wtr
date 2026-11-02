@@ -1,69 +1,145 @@
-#!/bin/bash
-# doctor.sh - System diagnostics and validation
+#!/usr/bin/env bash
 
+# Doctor command (health check)
 cmd_doctor() {
-  case "${1:-}" in
-    -h|--help)
-      cat <<'EOF'
-Usage: wtr doctor [options]
+  parse_args "" "$@"
 
-Run system diagnostics and validate the wtr environment.
+  echo "Running git wtr health check..."
+  echo ""
 
-Options:
-  --verbose           Show detailed diagnostics
-  -h, --help          Show this help message
-
-Checks:
-  - Git version compatibility
-  - Worktree support
-  - Adapter availability
-  - Configuration conflicts
-  - Permissions
-
-Examples:
-  wtr doctor
-  wtr doctor --verbose
-EOF
-      return 0
-      ;;
-  esac
-
-  log_info "Running system diagnostics..."
-  _run_doctor_checks "${1:-}"
-}
-
-_run_doctor_checks() {
-  local verbose="${1:-}"
   local issues=0
 
-  log_step "Git version"
-  local git_version
-  git_version=$(git --version | awk '{print $3}')
-  log_info "Git $git_version"
-
-  log_step "Worktree support"
-  if git worktree list >/dev/null 2>&1; then
-    log_success "Git worktrees supported"
+  # Check git
+  if command -v git >/dev/null 2>&1; then
+    local git_version
+    git_version=$(git --version)
+    echo "[OK] Git: $git_version"
   else
-    log_error "Git worktrees not supported"
-    ((issues++))
+    echo "[x] Git: not found"
+    issues=$((issues + 1))
   fi
 
-  log_step "Bash version"
-  log_info "Bash $BASH_VERSION"
+  # Check repo
+  local repo_root
+  if repo_root=$(discover_repo_root 2>/dev/null); then
+    echo "[OK] Repository: $repo_root"
 
-  log_step "Configuration"
-  if [ -f ".wtrconfig" ]; then
-    log_info ".wtrconfig found"
+    # Check worktree base dir
+    local base_dir prefix
+    base_dir=$(resolve_base_dir "$repo_root")
+    prefix=$(cfg_default wtr.worktrees.prefix WTR_WORKTREES_PREFIX "")
+
+    if [ -d "$base_dir" ]; then
+      local count
+      count=$(git worktree list --porcelain 2>/dev/null | grep -c '^worktree ' || true)
+      count=$((count - 1))  # Exclude main worktree
+      [ "$count" -lt 0 ] && count=0
+      echo "[OK] Worktrees directory: $base_dir ($count worktrees)"
+    else
+      echo "[i] Worktrees directory: $base_dir (not created yet)"
+    fi
+    if [ -n "$prefix" ]; then
+      echo "[i] Worktree prefix: $prefix"
+    fi
   else
-    log_info "No .wtrconfig (using defaults)"
+    echo "[x] Not in a git repository"
+    issues=$((issues + 1))
   fi
 
+  # Check configured editor (with .wtrconfig support)
+  local editor
+  editor=$(_cfg_editor_default)
+  if [ "$editor" != "none" ]; then
+    if load_editor_adapter "$editor" 2>/dev/null; then
+      if editor_can_open 2>/dev/null; then
+        echo "[OK] Editor: $editor (found)"
+      else
+        echo "[!] Editor: $editor (configured but not found in PATH)"
+      fi
+    else
+      echo "[!] Editor: $editor (adapter not found)"
+    fi
+  else
+    echo "[i] Editor: none configured"
+  fi
+
+  # Check configured AI tool (with .wtrconfig support)
+  local ai_tool
+  ai_tool=$(_cfg_ai_default)
+  if [ "$ai_tool" != "none" ]; then
+    if load_ai_adapter "$ai_tool" 2>/dev/null; then
+      if ai_can_start 2>/dev/null; then
+        echo "[OK] AI tool: $ai_tool (found)"
+      else
+        echo "[!] AI tool: $ai_tool (configured but not found in PATH)"
+      fi
+    else
+      echo "[!] AI tool: $ai_tool (adapter not found)"
+    fi
+  else
+    echo "[i] AI tool: none configured"
+  fi
+
+  # Check OS
+  local os
+  os=$(detect_os)
+  echo "[OK] Platform: $os"
+
+  # Check hosting provider
+  if [ -n "$repo_root" ]; then
+    local provider
+    provider=$(detect_provider 2>/dev/null) || true
+    if [ -n "$provider" ]; then
+      echo "[OK] Provider: $provider"
+      case "$provider" in
+        github)
+          if command -v gh >/dev/null 2>&1; then
+            echo "[OK] GitHub CLI: $(gh --version 2>/dev/null | head -1)"
+          else
+            echo "[!] GitHub CLI: not found (needed for: clean --merged/--closed)"
+          fi
+          ;;
+        gitlab)
+          if command -v glab >/dev/null 2>&1; then
+            echo "[OK] GitLab CLI: $(glab --version 2>/dev/null | head -1)"
+          else
+            echo "[!] GitLab CLI: not found (needed for: clean --merged/--closed)"
+          fi
+          ;;
+      esac
+    else
+      echo "[i] Provider: unknown (set wtr.provider for clean --merged/--closed)"
+    fi
+  fi
+
+  # Check fzf (optional, for interactive picker)
+  if command -v fzf >/dev/null 2>&1; then
+    echo "[OK] fzf: $(fzf --version 2>/dev/null | awk '{print $1}') (interactive picker: wtr cd)"
+  else
+    echo "[i] fzf: not found (install for interactive picker: wtr cd)"
+  fi
+
+  # Check shell integration (required for wtr cd)
+  local _shell_name _rc_file
+  _shell_name="$(basename "${SHELL:-bash}")"
+  case "$_shell_name" in
+    zsh)  _rc_file="$HOME/.zshrc" ;;
+    bash) _rc_file="$HOME/.bashrc" ;;
+    fish) _rc_file="$HOME/.config/fish/config.fish" ;;
+    *)    _rc_file="" ;;
+  esac
+  if [ -n "$_rc_file" ] && [ -f "$_rc_file" ] && grep -qE 'git wtr init|wtr/init-' "$_rc_file" 2>/dev/null; then
+    echo "[OK] Shell integration: loaded (wtr cd available)"
+  elif [ -n "$_rc_file" ]; then
+    echo "[i] Shell integration: run 'git wtr help init' for setup instructions"
+  fi
+
+  echo ""
   if [ "$issues" -eq 0 ]; then
-    log_success "All checks passed"
+    echo "Everything looks good!"
     return 0
   else
-    log_error "$issues issue(s) found"
+    echo "[!] Found $issues issue(s)"
     return 1
   fi
 }
