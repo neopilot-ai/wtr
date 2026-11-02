@@ -261,14 +261,14 @@ run_generated_replacement_repo_hooks() (
   run cmd_init bash --as gwtr
   [ "$status" -eq 0 ]
   [[ "$output" == *"gwtr()"* ]]
-  [[ "$output" != *"wtr()"* ]]
+  [[ "$output" != *$'\nwtr() {'* ]]
 }
 
 @test "zsh --as gwtr defines gwtr() function" {
   run cmd_init zsh --as gwtr
   [ "$status" -eq 0 ]
   [[ "$output" == *"gwtr()"* ]]
-  [[ "$output" != *"wtr()"* ]]
+  [[ "$output" != *$'\nwtr() {'* ]]
 }
 
 @test "fish --as gwtr defines 'function gwtr'" {
