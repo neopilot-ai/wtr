@@ -1,164 +1,778 @@
-# copy.sh - selective copy helpers
+#!/usr/bin/env bash
+# File copying utilities with pattern matching
 
-# Enable extended globbing if using bash
-if [ -n "$BASH_VERSION" ]; then
-  shopt -s globstar extglob 2>/dev/null || true
-fi
+# --- Context Globals Contract ---
+# merge_copy_patterns() -> _ctx_copy_includes  _ctx_copy_excludes
+declare _ctx_copy_includes _ctx_copy_excludes
 
-# Parse a pattern file (like .gitignore or .worktreeinclude)
-parse_pattern_file() {
-  local file="$1"
-  if [ -f "$file" ]; then
-    # Remove comments and empty lines, and trim whitespace
-    grep -v '^#' "$file" | grep -v '^[[:space:]]*$' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' || true
-  fi
-}
-
-# Check if a file matches a list of patterns (newline separated)
-matches_patterns() {
-  local file="$1"
-  local patterns="$2"
-  
-  [ -z "$patterns" ] && return 1
-
-  # Ensure globstar is set for this context
-  [ -n "$BASH_VERSION" ] && shopt -s globstar extglob 2>/dev/null
-
-  while read -r p || [ -n "$p" ]; do
-    [ -z "$p" ] && continue
-    
-    # Trim whitespace
-    p="${p#"${p%%[![:space:]]*}"}"
-    p="${p%"${p##*[![:space:]]}"}"
-    
-    [ -z "$p" ] && continue
-
-    # Simple glob match
-    # shellcheck disable=SC2053
-    if [[ "$file" == $p ]]; then
-      return 0
-    fi
-    
-    # Also handle patterns that match directories (e.g. "dist/")
-    if [[ "$p" == */ ]]; then
-      local dir_p="${p%/}"
-      if [[ "$file" == "$dir_p"/* ]] || [[ "$file" == "$dir_p" ]]; then
-        return 0
-      fi
-    fi
-  done <<< "$patterns"
-  
+# Check if a path/pattern is unsafe (absolute or contains directory traversal)
+# Usage: _is_unsafe_path "pattern"
+# Returns: 0 if unsafe, 1 if safe
+_is_unsafe_path() {
+  case "$1" in
+    /*|*/../*|../*|*/..|..) return 0 ;;
+  esac
   return 1
 }
 
-# Copy files matching patterns from src to dst
-copy_patterns() {
-  local src="$1"
-  local dst="$2"
-  local patterns="$3"
-  local exclude_patterns="${4:-}"
-  local dry_run="${5:-false}"
-  local verbose="${6:-false}"
-
-  [ -z "$patterns" ] && return 0
-
-  # Ensure dst exists
-  [ "$dry_run" = "false" ] && mkdir -p "$dst"
-
-  # We use git ls-files if possible to respect .gitignore
-  # Fallback to find if not a git repo
-  local files
-  if git -C "$src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    # Get all tracked and untracked (but not ignored) files
-    files=$(git -C "$src" ls-files --cached --others --exclude-standard)
-  else
-    files=$(cd "$src" && find . -type f | sed 's|^./||')
-  fi
-
-  while read -r f || [ -n "$f" ]; do
-    [ -z "$f" ] && continue
-
-    # Check includes
-    if matches_patterns "$f" "$patterns"; then
-      # Check excludes
-      if [ -n "$exclude_patterns" ] && matches_patterns "$f" "$exclude_patterns"; then
-        continue
-      fi
-
-      if [ "$dry_run" = "true" ]; then
-        [ "$verbose" = "true" ] && echo "[dry-run] Copying $f"
-      else
-        mkdir -p "$(dirname "$dst/$f")"
-        cp -p "$src/$f" "$dst/$f" 2>/dev/null || log_warn "Failed to copy $f"
-        [ "$verbose" = "true" ] && echo "Copied $f"
-      fi
-    fi
-  done <<< "$files"
-  
+# Check every relative component before a read, mkdir, or write.
+# Roots are caller-owned; paths below them may come from the checkout.
+_copy_components_safe() {
+  local current="$1" remaining="$2" component
+  _is_unsafe_path "$remaining" && return 1
+  [ -L "$current" ] && return 1
+  while [ -n "$remaining" ]; do
+    component="${remaining%%/*}"
+    case "$remaining" in
+      */*) remaining="${remaining#*/}" ;;
+      *) remaining="" ;;
+    esac
+    case "$component" in
+      ""|.) continue ;;
+      .[gG][iI][tT]) return 1 ;;
+    esac
+    current="$current/$component"
+    [ -L "$current" ] && return 1
+  done
   return 0
 }
 
-# Copy entire directories (typically git-ignored ones)
-copy_directories() {
-  local src="$1"
-  local dst="$2"
-  local includes="$3"
-  local excludes="${4:-}"
-
-  [ -z "$includes" ] && return 0
-  
-  if [ ! -d "$src" ]; then
-    log_error "Source directory does not exist: $src"
-    return 1
-  fi
-  
-  if [ ! -d "$dst" ]; then
-    if ! mkdir -p "$dst"; then
-      log_error "Failed to create destination directory: $dst"
-      return 1
-    fi
-  fi
-
-  local count=0
-  echo "$includes" | while read -r d; do
-    [ -z "$d" ] && continue
-    [ ! -d "$src/$d" ] && { log_debug "Directory not found: $src/$d"; continue; }
-
-    # Skip if excluded
-    local skip=0
-    if [ -n "$excludes" ]; then
-      while read -r e; do
-        [ -z "$e" ] && continue
-        # shellcheck disable=SC2053
-        if [[ "$d" == $e ]]; then
-          skip=1
-          break
-        fi
-      done <<< "$excludes"
-    fi
-    [ "$skip" -eq 1 ] && { log_debug "Directory excluded: $d"; continue; }
-
-    if ! { mkdir -p "$(dirname "$dst/$d")" && cp -Rp "$src/$d" "$dst/$d"; }; then
-      log_warn "Failed to copy directory: $d"
-      continue
-    fi
-    
-    count=$((count + 1))
-    log_debug "Copied directory: $d"
+# Keep discovery records intact. The public pattern list format is line based,
+# so names containing newlines are skipped rather than split into new paths.
+_copy_discovery_records() {
+  local entry
+  while IFS= read -r -d '' entry; do
+    case "$entry" in
+      *$'\n'*) log_warn "Skipping copy path containing a newline"; continue ;;
+    esac
+    printf '%s\n' "$entry"
   done
-  
-  log_info "Copied $count directories"
 }
 
-# Legacy alias
-copy_files_to_worktree() {
-  local src_dir="$1"
-  local dst_dir="$2"
-  local files_csv="$3"
-  IFS=',' read -r -a files <<< "$files_csv"
-  local patterns=""
-  for f in "${files[@]}"; do
-    patterns="${patterns}${patterns:+$'\n'}${f}"
+# Merge without following existing destination links. Stage each leaf in its
+# destination directory, then rename it so existing hard links are not written.
+_copy_tree_entry() {
+  local src="$1" dest="$2" child name staged dest_mode=""
+  [ -L "$dest" ] && return 1
+  if [ -d "$src" ] && [ ! -L "$src" ]; then
+    mkdir -p "$dest" || return 1
+    while IFS= read -r -d '' child; do
+      name="${child##*/}"
+      case "$name" in .[gG][iI][tT]) continue ;; esac
+      _copy_tree_entry "$child" "$dest/$name" || return 1
+    done < <(find "$src" -mindepth 1 -maxdepth 1 -print0)
+  else
+    [ -d "$dest" ] && return 1
+    if [ -f "$dest" ]; then
+      dest_mode=$(stat -c '%a' "$dest" 2>/dev/null) ||
+        dest_mode=$(stat -f '%Lp' "$dest" 2>/dev/null) || return 1
+    fi
+    staged=$(mktemp -d "${dest%/*}/.wtr-copy.XXXXXX") || return 1
+    if cp -P -- "$src" "$staged/leaf"; then
+      # Match cp's replacement semantics without writing the existing inode.
+      # Never chmod a staged symlink: it may point outside the worktree.
+      if [ -n "$dest_mode" ] && [ ! -L "$staged/leaf" ]; then
+        if ! chmod "$dest_mode" "$staged/leaf"; then
+          rm -rf -- "$staged"
+          return 1
+        fi
+      fi
+      if mv -f -- "$staged/leaf" "$dest"; then
+        rmdir "$staged"
+        return 0
+      fi
+    fi
+    rm -rf -- "$staged"
+    return 1
+  fi
+}
+
+# Check if a path matches any exclude pattern
+# Usage: is_excluded "path" "excludes_newline_separated"
+# Returns: 0 if excluded, 1 if not
+is_excluded() {
+  local path="$1"
+  local excludes="$2"
+
+  [ -z "$excludes" ] && return 1
+
+  while IFS= read -r exclude_pattern; do
+    [ -z "$exclude_pattern" ] && continue
+    # Intentional glob pattern matching for exclusion
+    # shellcheck disable=SC2254
+    case "$path" in
+      $exclude_pattern) return 0 ;;
+    esac
+  done <<EOF
+$excludes
+EOF
+
+  return 1
+}
+
+# Parse .gitignore-style pattern file
+# Usage: parse_pattern_file file_path
+# Returns: newline-separated patterns (comments and empty lines stripped)
+parse_pattern_file() {
+  local file_path="$1"
+
+  if [ ! -f "$file_path" ]; then
+    return 0
+  fi
+
+  # Read file, strip comments and empty lines
+  grep -v '^#' "$file_path" 2>/dev/null | grep -v '^[[:space:]]*$' || true
+}
+
+# Merge copy patterns from config and .worktreeinclude file
+# Usage: merge_copy_patterns repo_root
+# Sets: _ctx_copy_includes, _ctx_copy_excludes (newline-separated patterns)
+merge_copy_patterns() {
+  local repo_root="$1"
+
+  _ctx_copy_includes=$(cfg_get_all wtr.copy.include copy.include)
+  _ctx_copy_excludes=$(cfg_get_all wtr.copy.exclude copy.exclude)
+
+  # Read .worktreeinclude file if exists
+  local file_includes
+  file_includes=$(parse_pattern_file "$repo_root/.worktreeinclude")
+
+  # Merge file patterns into includes
+  if [ -n "$file_includes" ]; then
+    if [ -n "$_ctx_copy_includes" ]; then
+      _ctx_copy_includes="$_ctx_copy_includes"$'\n'"$file_includes"
+    else
+      _ctx_copy_includes="$file_includes"
+    fi
+  fi
+}
+
+# Copy a directory using CoW (copy-on-write) when available, falling back to standard cp.
+# New directories use a private staging directory so failed clones cannot
+# remove existing destination data. Existing trees merge with safe leaf writes.
+# Callers must guard the return value with `if` or `|| true` (set -e safe).
+# Usage: _fast_copy_dir src dest
+# Cached OS value for _fast_copy_dir; set on first call.
+_fast_copy_os=""
+
+_fast_copy_dir() {
+  local src="$1" dest="$2" target staging os
+  target="${dest%/}/${src##*/}"
+  if [ -e "$target" ] || [ -L "$target" ] || [ ! -d "$src" ] || [ -L "$src" ]; then
+    _copy_tree_entry "$src" "$target"
+    return $?
+  fi
+
+  staging=$(mktemp -d "${dest%/}/.wtr-copy.XXXXXX") || return 1
+  os="${_fast_copy_os:-$(detect_os)}"
+  _fast_copy_os="$os"
+  case "$os" in
+    darwin)
+      if ! cp -cRP -- "$src" "$staging/" 2>/dev/null; then
+        # Only this invocation's staging output is eligible for removal.
+        rm -rf -- "${staging:?}/${src##*/}"
+        cp -RP -- "$src" "$staging/" || { rm -rf -- "$staging"; return 1; }
+      fi
+      ;;
+    linux)
+      cp --reflink=auto -RP -- "$src" "$staging/" || { rm -rf -- "$staging"; return 1; }
+      ;;
+    *)
+      cp -RP -- "$src" "$staging/" || { rm -rf -- "$staging"; return 1; }
+      ;;
+  esac
+  # Never introduce Git control files, including nested repositories.
+  find "$staging" -iname .git -prune -exec rm -rf -- {} + 2>/dev/null || true
+  local remaining_git
+  if ! remaining_git=$(find "$staging" -iname .git -print -quit 2>/dev/null) ||
+    [ -n "$remaining_git" ]; then
+    rm -rf -- "$staging"
+    return 1
+  fi
+  if mv -- "${staging:?}/${src##*/}" "$target"; then
+    rmdir "$staging"
+  else
+    rm -rf -- "$staging"
+    return 1
+  fi
+}
+
+# Copy a single file to destination, handling exclusion, path preservation, and dry-run
+# Usage: _copy_pattern_file file dst_root excludes preserve_paths dry_run
+# Returns: 0 if file was copied (or would be in dry-run), 1 if skipped/failed
+_copy_pattern_file() {
+  local file="$1"
+  local dst_root="$2"
+  local excludes="$3"
+  local preserve_paths="$4"
+  local dry_run="$5"
+
+  # Remove leading ./
+  file="${file#./}"
+
+  if ! _copy_components_safe "." "$file"; then
+    log_warn "Skipping unsafe source path: $file"
+    return 1
+  fi
+
+  # Skip if excluded
+  is_excluded "$file" "$excludes" && return 1
+
+  # Determine destination path
+  local dest_file
+  if [ "$preserve_paths" = "true" ]; then
+    dest_file="$dst_root/$file"
+  else
+    dest_file="$dst_root/$(basename "$file")"
+  fi
+
+  if ! _copy_components_safe "$dst_root" "${dest_file#"$dst_root/"}"; then
+    log_warn "Skipping unsafe destination path: $file"
+    return 1
+  fi
+
+  # Copy the file (or show what would be copied in dry-run mode)
+  if [ "$dry_run" = "true" ]; then
+    log_info "[dry-run] Would copy: $file"
+    return 0
+  fi
+
+  local dest_dir
+  dest_dir=$(dirname "$dest_file")
+  mkdir -p "$dest_dir" || return 1
+  if _copy_tree_entry "$file" "$dest_file" 2>/dev/null; then
+    log_info "Copied $file"
+    return 0
+  else
+    log_warn "Failed to copy $file"
+    return 1
+  fi
+}
+
+# Process a single glob pattern: expand via globstar or find fallback, copy matching files.
+# Must be called from within the source directory with shell options already configured.
+# Prints the number of files copied to stdout.
+# Usage: _expand_and_copy_pattern <pattern> <dst_root> <excludes> <preserve_paths> <dry_run> <have_globstar>
+_expand_and_copy_pattern() {
+  local pattern="$1" dst_root="$2" excludes="$3"
+  local preserve_paths="$4" dry_run="$5" have_globstar="$6"
+  local count=0
+
+  if [ "$have_globstar" -eq 0 ] && echo "$pattern" | grep -q '\*\*'; then
+    # Fallback to find for ** patterns on Bash 3.2
+    # find -path doesn't treat ** as recursive glob; it's just a wildcard that
+    # won't match across the required '/' separator. For **/-prefixed patterns,
+    # also search with the suffix alone so root-level files are found.
+    local _find_results
+    _find_results=$(find . -path "./$pattern" -type f -print0 2>/dev/null | _copy_discovery_records)
+    case "$pattern" in
+      \*\*/*)
+        local _suffix="${pattern#\*\*/}"
+        local _root_results
+        _root_results=$(find . -maxdepth 1 -path "./$_suffix" -type f -print0 2>/dev/null | _copy_discovery_records)
+        if [ -n "$_root_results" ]; then
+          if [ -n "$_find_results" ]; then
+            _find_results="$_find_results"$'\n'"$_root_results"
+          else
+            _find_results="$_root_results"
+          fi
+        fi
+        ;;
+    esac
+    while IFS= read -r file; do
+      [ -z "$file" ] && continue
+      if _copy_pattern_file "$file" "$dst_root" "$excludes" "$preserve_paths" "$dry_run"; then
+        count=$((count + 1))
+      fi
+    done <<EOF
+$_find_results
+EOF
+  else
+    # Use native Bash glob expansion (supports ** if available)
+    for file in $pattern; do
+      [ -f "$file" ] || continue
+      if _copy_pattern_file "$file" "$dst_root" "$excludes" "$preserve_paths" "$dry_run"; then
+        count=$((count + 1))
+      fi
+    done
+  fi
+
+  printf "%s" "$count"
+}
+
+# Copy files matching patterns from source to destination
+# Usage: copy_patterns src_root dst_root includes excludes [preserve_paths] [dry_run]
+# includes: newline-separated glob patterns to include
+# excludes: newline-separated glob patterns to exclude
+# preserve_paths: true (default) to preserve directory structure
+# dry_run: true to only show what would be copied without copying
+copy_patterns() {
+  local src_root="$1" dst_root="$2" includes="$3" excludes="$4"
+  local preserve_paths="${5:-true}" dry_run="${6:-false}"
+
+  [ -z "$includes" ] && return 0
+
+  local old_pwd
+  old_pwd=$(pwd)
+  cd "$src_root" || return 1
+
+  # Save and configure shell options for glob expansion
+  local shopt_save
+  shopt_save="$(shopt -p nullglob dotglob globstar 2>/dev/null || true)"
+  local have_globstar=0
+  if shopt -s globstar 2>/dev/null; then
+    have_globstar=1
+  fi
+  shopt -s nullglob dotglob 2>/dev/null || true
+
+  local copied_count=0
+
+  while IFS= read -r pattern; do
+    [ -z "$pattern" ] && continue
+
+    if _is_unsafe_path "$pattern"; then
+      log_warn "Skipping unsafe pattern (absolute path or '..' path segment): $pattern"
+      continue
+    fi
+
+    local pattern_copied
+    pattern_copied=$(_expand_and_copy_pattern "$pattern" "$dst_root" "$excludes" "$preserve_paths" "$dry_run" "$have_globstar")
+    copied_count=$((copied_count + pattern_copied))
+  done <<EOF
+$includes
+EOF
+
+  eval "$shopt_save" 2>/dev/null || true
+  cd "$old_pwd" || return 1
+
+  if [ "$copied_count" -gt 0 ]; then
+    if [ "$dry_run" = "true" ]; then
+      log_info "[dry-run] Would copy $copied_count file(s)"
+    else
+      log_info "Copied $copied_count file(s)"
+    fi
+  fi
+
+  return 0
+}
+
+# Return the portion of an exclude pattern that is relative to a copied directory.
+# Supports nested include paths and glob prefixes like "vendor/*/cache" or "*/.cache".
+# Usage: _directory_exclude_suffix <dir_path> <exclude_pattern>
+_directory_exclude_suffix() {
+  local dir_path="$1" exclude_pattern="$2"
+
+  case "$exclude_pattern" in
+    */*) ;;
+    *) return 1 ;;
+  esac
+
+  case "$exclude_pattern" in
+    .git|*/.git|.git/*|*/.git/*) return 1 ;;
+  esac
+
+  local prefix suffix matched_suffix
+  prefix="${exclude_pattern%%/*}"
+  suffix="${exclude_pattern#*/}"
+  matched_suffix=""
+
+  while :; do
+    [ -z "$suffix" ] && break
+
+    # Intentional glob pattern matching for directory prefix
+    # shellcheck disable=SC2254
+    case "$dir_path" in
+      $prefix)
+        matched_suffix="$suffix"
+        ;;
+    esac
+
+    case "$suffix" in
+      */*)
+        prefix="$prefix/${suffix%%/*}"
+        suffix="${suffix#*/}"
+        ;;
+      *) break ;;
+    esac
   done
-  copy_patterns "$src_dir" "$dst_dir" "$patterns" "" "false" "true"
+
+  if [ -n "$matched_suffix" ]; then
+    printf '%s\n' "$matched_suffix"
+    return 0
+  fi
+
+  return 1
+}
+
+# Check each directory component before entering an exclusion root.
+# Do not resolve symlinks: even an in-tree link can redirect a later removal.
+# Usage: _exclude_root_is_safe <dest_parent> <dir_path>
+_exclude_root_is_safe() {
+  local current="$1" remaining="$2" component
+
+  _is_unsafe_path "$remaining" && return 1
+  while [ -n "$remaining" ]; do
+    component="${remaining%%/*}"
+    case "$remaining" in
+      */*) remaining="${remaining#*/}" ;;
+      *) remaining="" ;;
+    esac
+    case "$component" in
+      ""|.) continue ;;
+      .[gG][iI][tT]) return 1 ;;
+    esac
+    current="$current/$component"
+    [ -L "$current" ] && return 1
+  done
+  [ -d "$current" ]
+}
+
+# Expand one glob component at a time so expansion never traverses symlinks.
+# Runs inside the exclusion subshell with nullglob/dotglob enabled.
+# Sets the caller's removed_any flag when at least one removal succeeds.
+# Usage: _remove_directory_exclude_matches <parent> <pattern>
+_remove_directory_exclude_matches() {
+  local parent="$1" pattern="$2" component suffix="" matched_path name
+  component="${pattern%%/*}"
+  case "$pattern" in
+    */*) suffix="${pattern#*/}" ;;
+  esac
+
+  # Empty components (repeated slashes) do not change the current directory.
+  if [ -z "$component" ]; then
+    [ -n "$suffix" ] && _remove_directory_exclude_matches "$parent" "$suffix"
+    return 0
+  fi
+
+  # Disable word splitting while retaining glob expansion, including spaces.
+  local IFS=""
+  # shellcheck disable=SC2086
+  for matched_path in "$parent"/$component; do
+    name="${matched_path##*/}"
+    # Also reject glob spellings of dot, dot-dot, and Git metadata.
+    case "$name" in
+      .|..|.[gG][iI][tT]) continue ;;
+    esac
+    if [ -n "$suffix" ]; then
+      if [ -d "$matched_path" ] && [ ! -L "$matched_path" ]; then
+        _remove_directory_exclude_matches "$matched_path" "$suffix"
+      fi
+    elif [ -e "$matched_path" ] || [ -L "$matched_path" ]; then
+      # A leaf symlink is safe to unlink; never append a slash to it.
+      if rm -rf -- "$matched_path" 2>/dev/null; then
+        removed_any=1
+      fi
+    fi
+  done
+  return 0
+}
+
+# Remove excluded subdirectories from a copied directory.
+# Supports patterns like "node_modules/.cache", "*/.cache", "node_modules/*", "*/.*"
+# Usage: _apply_directory_excludes <dest_parent> <dir_path> <excludes>
+_apply_directory_excludes() {
+  local dest_parent="$1" dir_path="$2" excludes="$3"
+
+  [ -z "$excludes" ] && return 0
+
+  local exclude_pattern
+  while IFS= read -r exclude_pattern; do
+    [ -z "$exclude_pattern" ] && continue
+
+    if _is_unsafe_path "$exclude_pattern"; then
+      log_warn "Skipping unsafe exclude pattern: $exclude_pattern"
+      continue
+    fi
+
+    local pattern_suffix
+    pattern_suffix=$(_directory_exclude_suffix "$dir_path" "$exclude_pattern") || true
+    if [ -z "$pattern_suffix" ]; then
+      case "$exclude_pattern" in
+        */)
+          log_warn "Skipping overly broad exclude suffix: $exclude_pattern"
+          ;;
+        .git|*/.git|.git/*|*/.git/*)
+          log_warn "Skipping exclude pattern targeting .git metadata: $exclude_pattern"
+          ;;
+      esac
+      continue
+    fi
+
+    if ! _exclude_root_is_safe "$dest_parent" "$dir_path"; then
+      log_warn "Skipping excludes through unsafe directory path: $dir_path"
+      continue
+    fi
+
+    local removed_any=0
+    # Keep cwd and shell option changes local, and prevent inherited globstar
+    # from recursively expanding a component before we can check symlinks.
+    if (
+      cd "$dest_parent/$dir_path" || exit 1
+      shopt -s nullglob dotglob
+      shopt -u globstar 2>/dev/null || true
+      _remove_directory_exclude_matches "." "$pattern_suffix"
+      [ "$removed_any" -eq 1 ]
+    ); then
+      removed_any=1
+    fi
+
+    if [ "$removed_any" -eq 1 ]; then
+      log_info "Excluded subdirectory $exclude_pattern"
+    fi
+  done <<EOF
+$excludes
+EOF
+}
+
+# Check whether any exclude pattern applies beneath a copied directory.
+# Usage: _has_subdir_excludes <dir_path> <excludes>
+_has_subdir_excludes() {
+  local dir_path="$1" excludes="$2"
+
+  [ -z "$excludes" ] && return 1
+
+  local exclude_pattern
+  while IFS= read -r exclude_pattern; do
+    [ -z "$exclude_pattern" ] && continue
+
+    if _is_unsafe_path "$exclude_pattern"; then
+      continue
+    fi
+
+    if _directory_exclude_suffix "$dir_path" "$exclude_pattern" >/dev/null; then
+      return 0
+    fi
+  done <<EOF
+$excludes
+EOF
+
+  return 1
+}
+
+# Copy a directory one direct child at a time, skipping excluded child subtrees
+# before they are copied. Deeper excludes are still removed after copy.
+# Usage: _selective_copy_dir <dir_path> <dst_root> <excludes>
+_selective_copy_dir() {
+  local dir_path="$1" dst_root="$2" excludes="$3"
+  local dest_dir="$dst_root/$dir_path"
+
+  _copy_components_safe "." "$dir_path" || return 1
+  _copy_components_safe "$dst_root" "$dir_path" || return 1
+  mkdir -p "$dest_dir" || return 1
+
+  local find_results
+  find_results=$(find "$dir_path" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | _copy_discovery_records)
+
+  local child_path child_name child_rel
+  while IFS= read -r child_path; do
+    [ -z "$child_path" ] && continue
+
+    child_name=$(basename "$child_path")
+    child_rel="$dir_path/$child_name"
+
+    if is_excluded "$child_rel" "$excludes" || is_excluded "$child_rel/" "$excludes"; then
+      log_info "Skipped excluded directory $child_rel"
+      continue
+    fi
+
+    case "$child_name" in .[gG][iI][tT]) continue ;; esac
+    if ! _copy_components_safe "$dst_root" "$child_rel"; then
+      log_warn "Skipping unsafe destination path: $child_rel"
+      continue
+    fi
+    if [ -d "$child_path" ] && [ ! -L "$child_path" ]; then
+      _selective_copy_dir "$child_rel" "$dst_root" "$excludes" || return 1
+    elif ! _fast_copy_dir "$child_path" "$dest_dir/"; then
+      return 1
+    fi
+  done <<EOF
+$find_results
+EOF
+
+  _apply_directory_excludes "$dst_root" "$dir_path" "$excludes"
+}
+
+# Return the number of path components in a directory pattern.
+# Usage: _directory_pattern_depth <pattern>
+_directory_pattern_depth() {
+  local pattern="$1"
+  local depth=1
+
+  while :; do
+    case "$pattern" in
+      */*)
+        depth=$((depth + 1))
+        pattern="${pattern#*/}"
+        ;;
+      *) break ;;
+    esac
+  done
+
+  printf '%s\n' "$depth"
+}
+
+# Resolve directory patterns once relative to a source root.
+# Literal paths use a direct filesystem check. Missing bare basenames retain
+# the legacy recursive fallback, batched into one scan. Single-star path globs
+# are bounded to their explicit component depth; only ** patterns recurse.
+# Usage: _resolve_directory_patterns <src_root> <dir_patterns>
+_resolve_directory_patterns() {
+  local src_root="$1"
+  local dir_patterns="$2"
+  local old_pwd
+  old_pwd=$(pwd)
+  cd "$src_root" || return 1
+
+  local pattern
+  local bounded_max_depth=0
+  local -a bounded_expr=()
+  local -a recursive_expr=()
+  while IFS= read -r pattern; do
+    [ -z "$pattern" ] && continue
+
+    if _is_unsafe_path "$pattern"; then
+      log_warn "Skipping unsafe pattern: $pattern"
+      continue
+    fi
+
+    local find_results=""
+    case "$pattern" in
+      *[\*\?\[]*)
+        case "$pattern" in
+          *'**'*)
+            [ "${#recursive_expr[@]}" -gt 0 ] && recursive_expr+=("-o")
+            recursive_expr+=("-path" "./$pattern")
+            ;;
+          */*)
+            local max_depth
+            max_depth=$(_directory_pattern_depth "$pattern")
+            [ "$max_depth" -gt "$bounded_max_depth" ] && bounded_max_depth="$max_depth"
+            [ "${#bounded_expr[@]}" -gt 0 ] && bounded_expr+=("-o")
+            bounded_expr+=("-path" "./$pattern")
+            ;;
+          *)
+            find_results=$(find . -maxdepth 1 -type d -name "$pattern" -print0 2>/dev/null | _copy_discovery_records)
+            if [ -z "$find_results" ]; then
+              [ "${#recursive_expr[@]}" -gt 0 ] && recursive_expr+=("-o")
+              recursive_expr+=("-name" "$pattern")
+            fi
+            ;;
+        esac
+        ;;
+      *)
+        if [ -d "$pattern" ]; then
+          find_results="./$pattern"
+        else
+          case "$pattern" in
+            */*) ;;
+            *)
+              [ "${#recursive_expr[@]}" -gt 0 ] && recursive_expr+=("-o")
+              recursive_expr+=("-name" "$pattern")
+              ;;
+          esac
+        fi
+        ;;
+    esac
+
+    [ -n "$find_results" ] && printf '%s\n' "$find_results"
+  done <<EOF
+$dir_patterns
+EOF
+
+  if [ "${#bounded_expr[@]}" -gt 0 ]; then
+    find . -maxdepth "$bounded_max_depth" -type d \( "${bounded_expr[@]}" \) -print0 2>/dev/null | _copy_discovery_records
+  fi
+
+  if [ "${#recursive_expr[@]}" -gt 0 ]; then
+    find . -type d \( "${recursive_expr[@]}" \) -print0 2>/dev/null | _copy_discovery_records
+  fi
+
+  cd "$old_pwd" || return 1
+}
+
+# Copy already-resolved directories from a source root.
+# Usage: _copy_resolved_directories src_root dst_root resolved_dirs excludes [dry_run]
+_copy_resolved_directories() {
+  local src_root="$1"
+  local dst_root="$2"
+  local resolved_dirs="$3"
+  local excludes="$4"
+  local dry_run="${5:-false}"
+
+  if [ -z "$resolved_dirs" ]; then
+    return 0
+  fi
+
+  local old_pwd
+  old_pwd=$(pwd)
+  cd "$src_root" || return 1
+
+  local copied_count=0
+  local dir_path
+  while IFS= read -r dir_path; do
+    [ -z "$dir_path" ] && continue
+    dir_path="${dir_path#./}"
+
+    if ! _copy_components_safe "." "$dir_path" || ! _copy_components_safe "$dst_root" "$dir_path"; then
+      log_warn "Skipping unsafe directory path: $dir_path"
+      continue
+    fi
+    is_excluded "$dir_path" "$excludes" && continue
+    [ ! -d "$dir_path" ] && continue
+
+    local dest_dir="$dst_root/$dir_path"
+    local dest_parent
+    dest_parent=$(dirname "$dest_dir")
+
+    if [ "$dry_run" = "true" ]; then
+      log_info "[dry-run] Would copy directory $dir_path"
+      copied_count=$((copied_count + 1))
+      continue
+    fi
+
+    mkdir -p "$dest_parent"
+
+    if { if _has_subdir_excludes "$dir_path" "$excludes"; then
+           _selective_copy_dir "$dir_path" "$dst_root" "$excludes"
+         else
+           _fast_copy_dir "$dir_path" "$dest_parent/"
+         fi; }; then
+      log_info "Copied directory $dir_path"
+      copied_count=$((copied_count + 1))
+    else
+      log_warn "Failed to copy directory $dir_path"
+    fi
+  done <<EOF
+$resolved_dirs
+EOF
+
+  cd "$old_pwd" || return 1
+
+  if [ "$copied_count" -gt 0 ]; then
+    if [ "$dry_run" = "true" ]; then
+      log_info "[dry-run] Would copy $copied_count directories"
+    else
+      log_info "Copied $copied_count directories"
+    fi
+  fi
+
+  return 0
+}
+
+# Copy directories matching patterns (typically git-ignored directories like node_modules)
+# Usage: copy_directories src_root dst_root dir_patterns excludes [dry_run]
+# dir_patterns: newline-separated repo-relative paths or glob patterns
+# excludes: newline-separated directory patterns to exclude (supports globs like "node_modules/.cache")
+# WARNING: This copies entire directories including potentially sensitive files.
+#          Use wtr.copy.excludeDirs to exclude sensitive directories.
+copy_directories() {
+  local src_root="$1"
+  local dst_root="$2"
+  local dir_patterns="$3"
+  local excludes="$4"
+  local dry_run="${5:-false}"
+
+  local resolved_dirs
+  resolved_dirs=$(_resolve_directory_patterns "$src_root" "$dir_patterns") || return 1
+  _copy_resolved_directories "$src_root" "$dst_root" "$resolved_dirs" "$excludes" "$dry_run"
 }
