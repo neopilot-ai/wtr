@@ -77,7 +77,7 @@ EOF
   [ "$rc" -eq 1 ]
   [ -f "$reviewed_trust_path" ]
   ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
-  grep -F "Executable commands or repository identity changed during review; current commands remain untrusted" "$output_file"
+  grep -F "Executable commands, repository identity or HEAD changed during review; current commands remain untrusted" "$output_file"
 }
 
 @test "cmd_trust writes the reviewed marker when hooks change during confirmation" {
@@ -99,7 +99,7 @@ EOF
 
   run cmd_trust
   [ "$status" -eq 1 ]
-  [[ "$output" == *"Executable commands or repository identity changed during review; current commands remain untrusted"* ]]
+  [[ "$output" == *"Executable commands, repository identity or HEAD changed during review; current commands remain untrusted"* ]]
   [ -f "$reviewed_marker" ]
 
   run _hooks_are_trusted "$TEST_REPO/.wtrconfig"
@@ -117,7 +117,7 @@ EOF
   }
   run cmd_trust
   [ "$status" -eq 1 ]
-  [[ "$output" == *"repository identity changed during review"* ]]
+  [[ "$output" == *"repository identity or HEAD changed during review"* ]]
   ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
 }
 
@@ -129,7 +129,7 @@ EOF
   }
   run cmd_trust
   [ "$status" -eq 1 ]
-  [[ "$output" == *"repository identity changed during review"* ]]
+  [[ "$output" == *"repository identity or HEAD changed during review"* ]]
   ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
 }
 
@@ -149,6 +149,6 @@ EOF
   prompt_yes_no() { return 0; }
   run cmd_trust
   [ "$status" -eq 1 ]
-  [[ "$output" == *"repository identity changed during review"* ]]
+  [[ "$output" == *"repository identity or HEAD changed during review"* ]]
   [ ! -f "$(_hooks_current_trust_path "$TEST_REPO/.wtrconfig")" ]
 }

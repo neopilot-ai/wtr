@@ -10,10 +10,15 @@ cmd_trust() {
     return 0
   fi
 
-  # Bind the definitions to the repository present before they are read.
-  local repo_root repo_identity
-  repo_root=$(_hooks_repo_root "$config_file") || return 1
-  repo_identity=$(_hooks_repo_identity "$repo_root") || return 1
+  # Bind the definitions to the worktree and commit present before they are
+  # read. Approval is per worktree: the Git directory identities and the
+  # reviewed HEAD commit are captured in the current directory's context.
+  local repo_identity reviewed_commit
+  repo_identity=$(_hooks_repo_identity "$(pwd -P)") || return 1
+  reviewed_commit=$(_hooks_head_commit ".") || {
+    log_error "Cannot determine HEAD commit; approval requires a commit to review"
+    return 1
+  }
 
   # Show all trusted command entries from .wtrconfig
   local hook_content
@@ -45,11 +50,12 @@ cmd_trust() {
   log_warn "Approval includes scripts and programs they invoke; their contents are not pinned."
 
   if prompt_yes_no "Trust these commands?"; then
-    if _hooks_write_trust_marker "$trust_path" "$config_file"; then
+    if _hooks_write_trust_marker "$trust_path" "$config_file" "$reviewed_commit"; then
       local current_trust_path
       current_trust_path=$(_hooks_current_trust_path "$config_file") || true
-      if [ "$current_trust_path" != "$trust_path" ]; then
-        log_warn "Executable commands or repository identity changed during review; current commands remain untrusted"
+      if [ "$current_trust_path" != "$trust_path" ] ||
+        ! _hooks_head_descends_from "$reviewed_commit" "."; then
+        log_warn "Executable commands, repository identity or HEAD changed during review; current commands remain untrusted"
         return 1
       fi
       log_info "Executable commands marked as trusted"

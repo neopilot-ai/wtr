@@ -267,7 +267,8 @@ _cmd_create_impl() {
   # Run post-create hooks (unless --no-hooks)
   local hook_status="disabled"
   if [ "$skip_hooks" -eq 0 ]; then
-    hook_status=$(_hooks_phase_status postCreate)
+    # Trust is bound to the worktree hooks execute in, so evaluate status there.
+    hook_status=$(cd "$worktree_path" && _hooks_phase_status postCreate)
     if ! run_hooks_in postCreate "$worktree_path" \
       REPO_ROOT="$repo_root" \
       WORKTREE_PATH="$worktree_path" \

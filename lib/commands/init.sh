@@ -68,7 +68,7 @@ cmd_init() {
   # Generate output (cached to ~/.cache/wtr/, auto-invalidates on shell integration changes)
   local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/wtr"
   local cache_file="$cache_dir/init-${func_name}.${shell}"
-  local cache_schema="${WTR_INIT_CACHE_VERSION:-7}"
+  local cache_schema="${WTR_INIT_CACHE_VERSION:-8}"
   local cache_stamp="# wtr-cache: version=${WTR_VERSION:-unknown} init=${cache_schema} func=$func_name shell=$shell"
 
   # Return cached output if version matches
@@ -176,20 +176,45 @@ __SHELL_PRELUDE__
   printf '%s/%s\n' "$_wtr_repo_root" "$(basename "$_wtr_config_file")"
 }
 
-__FUNC___hooks_repo_identity() {
+__FUNC___hooks_dir_birth_identity() {
 __SHELL_PRELUDE__
-  local _wtr_repo_root="$1"
-  local _wtr_common_dir _wtr_identity _wtr_birth_time
-  _wtr_common_dir="$(git -C "$_wtr_repo_root" rev-parse --git-common-dir 2>/dev/null)" || return 1
-  _wtr_common_dir="$(cd "$_wtr_repo_root" && cd "$_wtr_common_dir" && pwd -P)" || return 1
-  _wtr_identity="$(LC_ALL=C TZ=UTC stat -c '%d:%i:%W:%w' "$_wtr_common_dir" 2>/dev/null)" ||
-    _wtr_identity="$(LC_ALL=C stat -f '%d:%i:%.9FB' "$_wtr_common_dir" 2>/dev/null)" || return 1
+  local _wtr_dir="$1"
+  local _wtr_identity _wtr_birth_time
+  _wtr_identity="$(LC_ALL=C TZ=UTC stat -c '%d:%i:%W:%w' "$_wtr_dir" 2>/dev/null)" ||
+    _wtr_identity="$(LC_ALL=C stat -f '%d:%i:%.9FB' "$_wtr_dir" 2>/dev/null)" || return 1
   _wtr_birth_time="${_wtr_identity#*:*:}"
   _wtr_birth_time="${_wtr_birth_time%%:*}"
   case "$_wtr_birth_time" in
     (''|0|0.*|*[!0-9.]*) return 1 ;;
   esac
-  printf '%s\n%s\n' "$_wtr_common_dir" "$_wtr_identity"
+  printf '%s\n' "$_wtr_identity"
+}
+
+__FUNC___hooks_repo_identity() {
+__SHELL_PRELUDE__
+  local _wtr_context_dir="$1"
+  local _wtr_worktree_dir _wtr_common_dir _wtr_objects_dir _wtr_wt_identity _wtr_common_identity _wtr_objects_identity
+  _wtr_worktree_dir="$(git -C "$_wtr_context_dir" rev-parse --git-dir 2>/dev/null)" || return 1
+  _wtr_common_dir="$(git -C "$_wtr_context_dir" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  _wtr_objects_dir="$(git -C "$_wtr_context_dir" rev-parse --git-path objects 2>/dev/null)" || return 1
+  _wtr_worktree_dir="$(cd "$_wtr_context_dir" && cd "$_wtr_worktree_dir" && pwd -P)" || return 1
+  _wtr_common_dir="$(cd "$_wtr_context_dir" && cd "$_wtr_common_dir" && pwd -P)" || return 1
+  _wtr_objects_dir="$(cd "$_wtr_context_dir" && cd "$_wtr_objects_dir" && pwd -P)" || return 1
+  _wtr_wt_identity="$(__FUNC___hooks_dir_birth_identity "$_wtr_worktree_dir" 2>/dev/null)" || return 1
+  _wtr_common_identity="$(__FUNC___hooks_dir_birth_identity "$_wtr_common_dir" 2>/dev/null)" || return 1
+  _wtr_objects_identity="$(__FUNC___hooks_dir_birth_identity "$_wtr_objects_dir" 2>/dev/null)" || return 1
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$_wtr_worktree_dir" "$_wtr_wt_identity" "$_wtr_common_dir" "$_wtr_common_identity" "$_wtr_objects_dir" "$_wtr_objects_identity"
+}
+
+__FUNC___hooks_head_descends_from() {
+__SHELL_PRELUDE__
+  local _wtr_ancestor="$1"
+  local _wtr_dir="${2:-.}"
+  case "$_wtr_ancestor" in
+    (''|*[!0-9a-fA-F]*) return 1 ;;
+  esac
+  GIT_NO_REPLACE_OBJECTS=1 GIT_NO_LAZY_FETCH=1 GIT_GRAFT_FILE=/dev/null \
+    git -c core.commitGraph=false -C "$_wtr_dir" merge-base --is-ancestor "$_wtr_ancestor" HEAD 2>/dev/null
 }
 
 __FUNC___hooks_current_trust_key() {
@@ -202,19 +227,22 @@ __SHELL_PRELUDE__
   fi
   _wtr_hook_hash="$(__FUNC___hooks_current_content_hash "$_wtr_config_file" "$_wtr_definitions" 2>/dev/null)" || return 1
   _wtr_repo_root="$(__FUNC___hooks_repo_root "$_wtr_config_file" 2>/dev/null)" || return 1
-  _wtr_repo_identity="$(__FUNC___hooks_repo_identity "$_wtr_repo_root" 2>/dev/null)" || return 1
-  printf 'v3\n%s\n%s\n%s\n' "$_wtr_repo_root" "$_wtr_repo_identity" "$_wtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
+  _wtr_repo_identity="$(__FUNC___hooks_repo_identity "$(pwd -P)" 2>/dev/null)" || return 1
+  printf 'v5\n%s\n%s\n%s\n' "$_wtr_repo_root" "$_wtr_repo_identity" "$_wtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
 }
 
 __FUNC___hooks_marker_matches_config() {
 __SHELL_PRELUDE__
   local _wtr_trust_path="$1"
   local _wtr_config_file="$2"
-  local _wtr_marker _wtr_canonical_config
+  local _wtr_marker _wtr_canonical_config _wtr_marker_path _wtr_reviewed_commit
   [ -f "$_wtr_trust_path" ] || return 1
   _wtr_marker="$(cat "$_wtr_trust_path" 2>/dev/null)" || return 1
   _wtr_canonical_config="$(__FUNC___hooks_canonical_config_path "$_wtr_config_file" 2>/dev/null)" || return 1
-  [ "$_wtr_marker" = "$_wtr_canonical_config" ]
+  _wtr_marker_path="${_wtr_marker%%$'\n'*}"
+  _wtr_reviewed_commit="${_wtr_marker#*$'\n'}"
+  [ "$_wtr_marker_path" = "$_wtr_canonical_config" ] || return 1
+  __FUNC___hooks_head_descends_from "$_wtr_reviewed_commit" "."
 }
 
 __FUNC___hooks_are_trusted() {
@@ -275,20 +303,45 @@ function __FUNC___hooks_canonical_config_path
   printf '%s/%s\n' "$_wtr_repo_root" (basename "$_wtr_config_file")
 end
 
-function __FUNC___hooks_repo_identity
+function __FUNC___hooks_dir_birth_identity
   # Keep the identity algorithm identical to the CLI and POSIX wrappers.
   command sh -c '
-    common_dir=$(git -C "$1" rev-parse --git-common-dir 2>/dev/null) || exit 1
-    common_dir=$(cd "$1" && cd "$common_dir" && pwd -P) || exit 1
-    identity=$(LC_ALL=C TZ=UTC stat -c "%d:%i:%W:%w" "$common_dir" 2>/dev/null) ||
-      identity=$(LC_ALL=C stat -f "%d:%i:%.9FB" "$common_dir" 2>/dev/null) || exit 1
+    identity=$(LC_ALL=C TZ=UTC stat -c "%d:%i:%W:%w" "$1" 2>/dev/null) ||
+      identity=$(LC_ALL=C stat -f "%d:%i:%.9FB" "$1" 2>/dev/null) || exit 1
     birth_time="${identity#*:*:}"
     birth_time="${birth_time%%:*}"
     case "$birth_time" in
       ""|0|0.*|*[!0-9.]*) exit 1 ;;
     esac
-    printf "%s\\n%s\\n" "$common_dir" "$identity"
+    printf "%s\\n" "$identity"
   ' sh "$argv[1]"
+end
+
+function __FUNC___hooks_repo_identity
+  set -l _wtr_worktree_dir (git -C "$argv[1]" rev-parse --git-dir 2>/dev/null)
+  set -l _wtr_common_dir (git -C "$argv[1]" rev-parse --git-common-dir 2>/dev/null)
+  set -l _wtr_objects_dir (git -C "$argv[1]" rev-parse --git-path objects 2>/dev/null)
+  test -n "$_wtr_worktree_dir"; and test -n "$_wtr_common_dir"; and test -n "$_wtr_objects_dir"; or return 1
+  set -l _wtr_wt_dir (cd "$argv[1]" && cd "$_wtr_worktree_dir" && pwd -P)
+  set -l _wtr_common_dir_canon (cd "$argv[1]" && cd "$_wtr_common_dir" && pwd -P)
+  set -l _wtr_objects_dir_canon (cd "$argv[1]" && cd "$_wtr_objects_dir" && pwd -P)
+  test -n "$_wtr_wt_dir"; and test -n "$_wtr_common_dir_canon"; and test -n "$_wtr_objects_dir_canon"; or return 1
+  set -l _wtr_wt_identity (__FUNC___hooks_dir_birth_identity "$_wtr_wt_dir" 2>/dev/null | string collect)
+  set -l _wtr_common_identity (__FUNC___hooks_dir_birth_identity "$_wtr_common_dir_canon" 2>/dev/null | string collect)
+  set -l _wtr_objects_identity (__FUNC___hooks_dir_birth_identity "$_wtr_objects_dir_canon" 2>/dev/null | string collect)
+  test $pipestatus[1] -eq 0; and test $pipestatus[2] -eq 0; and test $pipestatus[3] -eq 0; or return 1
+  test -n "$_wtr_wt_identity"; and test -n "$_wtr_common_identity"; and test -n "$_wtr_objects_identity"; or return 1
+  printf '%s\n%s\n%s\n%s\n%s\n%s\n' "$_wtr_wt_dir" "$_wtr_wt_identity" "$_wtr_common_dir_canon" "$_wtr_common_identity" "$_wtr_objects_dir_canon" "$_wtr_objects_identity"
+end
+
+function __FUNC___hooks_head_descends_from
+  set -l _wtr_ancestor "$argv[1]"
+  set -l _wtr_dir "${argv[2]:-.}"
+  if not string match -r '^[0-9a-fA-F]+$' -- "$_wtr_ancestor"
+    return 1
+  end
+  env GIT_NO_REPLACE_OBJECTS=1 GIT_NO_LAZY_FETCH=1 GIT_GRAFT_FILE=/dev/null \
+    git -c core.commitGraph=false -C "$_wtr_dir" merge-base --is-ancestor "$_wtr_ancestor" HEAD 2>/dev/null
 end
 
 function __FUNC___hooks_current_trust_key
@@ -301,19 +354,22 @@ function __FUNC___hooks_current_trust_key
   test -n "$_wtr_hook_hash"; or return 1
   set -l _wtr_repo_root (__FUNC___hooks_repo_root "$_wtr_config_file" 2>/dev/null)
   test -n "$_wtr_repo_root"; or return 1
-  set -l _wtr_repo_identity (__FUNC___hooks_repo_identity "$_wtr_repo_root" 2>/dev/null | string collect)
+  set -l _wtr_repo_identity (__FUNC___hooks_repo_identity (pwd -P) 2>/dev/null | string collect)
   test $pipestatus[1] -eq 0; or return 1
   test -n "$_wtr_repo_identity"; or return 1
-  printf 'v3\n%s\n%s\n%s\n' "$_wtr_repo_root" "$_wtr_repo_identity" "$_wtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
+  printf 'v5\n%s\n%s\n%s\n' "$_wtr_repo_root" "$_wtr_repo_identity" "$_wtr_hook_hash" | shasum -a 256 | cut -d' ' -f1
 end
 
 function __FUNC___hooks_marker_matches_config
   set -l _wtr_trust_path "$argv[1]"
   set -l _wtr_config_file "$argv[2]"
   test -f "$_wtr_trust_path"; or return 1
-  set -l _wtr_marker (cat "$_wtr_trust_path" 2>/dev/null)
+  set -l _wtr_marker (cat "$_wtr_trust_path" 2>/dev/null | string collect)
   set -l _wtr_canonical_config (__FUNC___hooks_canonical_config_path "$_wtr_config_file" 2>/dev/null)
-  test "$_wtr_marker" = "$_wtr_canonical_config"
+  set -l _wtr_marker_lines (string split -- "\n" -- "$_wtr_marker")
+  test (count $_wtr_marker_lines) -eq 2; or return 1
+  test "$_wtr_marker_lines[1]" = "$_wtr_canonical_config"; or return 1
+  __FUNC___hooks_head_descends_from "$_wtr_marker_lines[2]" "."
 end
 
 function __FUNC___hooks_are_trusted

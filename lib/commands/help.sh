@@ -483,7 +483,8 @@ Approval includes scripts and programs invoked by these commands. Their
 contents are not hashed or pinned; review delegated code and trust its
 contributors before approving.
 
-Trust requires a known filesystem birth time for the Git directory.
+Trust requires known filesystem birth times for the worktree Git directory,
+common Git directory and object database directory.
 Without it, .wtrconfig executable commands remain untrusted.
 
 Hooks and defaults from your local git config (.git/config, ~/.gitconfig)

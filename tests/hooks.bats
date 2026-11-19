@@ -205,6 +205,25 @@ EOF
   done
 }
 
+@test "replacing the object database while preserving git cannot reuse approval" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  _hooks_mark_trusted "$TEST_REPO/.wtrconfig"
+
+  local objects="$TEST_REPO/.git/objects"
+  local replacement="$TEST_REPO/.git/objects.replacement"
+  mv "$objects" "$replacement"
+  mkdir -p "$objects"
+
+  # Preserve the commit objects needed for a raw ancestry check.  The approval
+  # must still fail because the object database directory itself was replaced.
+  cp -R "$replacement/"* "$objects/" 2>/dev/null || true
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+
+  rm -rf "$objects"
+  mv "$replacement" "$objects"
+  _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+}
+
 @test "unknown or unavailable Git directory birth times fail closed" {
   git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
   stat() { printf '%s\n' "$fixture_stat"; }
@@ -223,11 +242,20 @@ EOF
   _hooks_are_trusted "$TEST_REPO/.wtrconfig"
 }
 
-@test "repository identity stays stable across commits and linked worktrees" {
+@test "repository identity stays stable across commits in the same worktree" {
   git config -f "$TEST_REPO/.wtrconfig" hooks.postCreate 'echo harmless'
   _hooks_mark_trusted "$TEST_REPO/.wtrconfig"
   git -C "$TEST_REPO" commit --allow-empty -m second --quiet
+  _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+}
+
+@test "approval in one worktree does not authorize a linked worktree" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCreate 'echo harmless'
+  _hooks_mark_trusted "$TEST_REPO/.wtrconfig"
   create_test_worktree identity-test
+  (cd "$TEST_WT_PATH" && ! _hooks_are_trusted "$TEST_REPO/.wtrconfig")
+  # Approving inside the linked worktree authorizes only that worktree.
+  (cd "$TEST_WT_PATH" && _hooks_mark_trusted "$TEST_REPO/.wtrconfig")
   (cd "$TEST_WT_PATH" && _hooks_are_trusted "$TEST_REPO/.wtrconfig")
 }
 
@@ -473,4 +501,157 @@ EOF
   birth_fraction=987654321
   second=$(_hooks_repo_identity "$TEST_REPO")
   [ "$first" != "$second" ]
+}
+
+# ── Reviewed-commit ancestry binding ──────────────────────────────────────
+
+@test "trust survives descendant commits but not unrelated history" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  local orig_branch
+  orig_branch=$(git -C "$TEST_REPO" branch --show-current)
+  _hooks_mark_trusted "$TEST_REPO/.wtrconfig"
+  git -C "$TEST_REPO" commit --allow-empty -m child --quiet
+  _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+
+  # Rewrite HEAD onto an unrelated root: reviewed commit is no longer an ancestor.
+  git -C "$TEST_REPO" checkout --quiet --orphan unrelated
+  git -C "$TEST_REPO" commit --allow-empty -m unrelated --quiet
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+  git -C "$TEST_REPO" checkout --quiet "$orig_branch"
+}
+
+@test "trust fails when HEAD is reset before the reviewed commit" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  git -C "$TEST_REPO" commit --allow-empty -m reviewed --quiet
+  _hooks_mark_trusted "$TEST_REPO/.wtrconfig"
+  git -C "$TEST_REPO" reset --hard --quiet HEAD^
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+}
+
+@test "replace refs cannot forge ancestry for the reviewed commit" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  local reviewed orig_branch unrelated_head forged_commit
+  orig_branch=$(git -C "$TEST_REPO" branch --show-current)
+  reviewed=$(_hooks_head_commit "$TEST_REPO")
+  _hooks_mark_trusted "$TEST_REPO/.wtrconfig"
+
+  # Move HEAD to an unrelated root commit, then replace it with a commit that
+  # descends from the reviewed commit. Honoring replace refs would fake the
+  # ancestry; the trust check must read raw commit objects instead.
+  git -C "$TEST_REPO" checkout --quiet --orphan unrelated
+  git -C "$TEST_REPO" commit --allow-empty -m unrelated --quiet
+  unrelated_head=$(git -C "$TEST_REPO" rev-parse HEAD)
+  forged_commit=$(git -C "$TEST_REPO" commit-tree "$(git -C "$TEST_REPO" write-tree)" -p "$reviewed" -m forged)
+  git -C "$TEST_REPO" replace "$unrelated_head" "$forged_commit"
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+  git -C "$TEST_REPO" replace -d "$unrelated_head" 2>/dev/null || true
+  git -C "$TEST_REPO" checkout --quiet "$orig_branch"
+  git -C "$TEST_REPO" branch -D unrelated --quiet 2>/dev/null || true
+}
+
+@test "grafts cannot forge ancestry for the reviewed commit" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  local reviewed unrelated_head orig_branch
+  orig_branch=$(git -C "$TEST_REPO" branch --show-current)
+  reviewed=$(_hooks_head_commit "$TEST_REPO")
+  _hooks_mark_trusted "$TEST_REPO/.wtrconfig"
+  git -C "$TEST_REPO" checkout --quiet --orphan unrelated
+  git -C "$TEST_REPO" commit --allow-empty -m unrelated --quiet
+  unrelated_head=$(git -C "$TEST_REPO" rev-parse HEAD)
+  git -C "$TEST_REPO" checkout --quiet "$orig_branch"
+  # A graft claiming the unrelated commit descends from reviewed history must
+  # be ignored: parent headers come from raw commit objects only.
+  mkdir -p "$TEST_REPO/.git/info"
+  printf '%s %s\n' "$unrelated_head" "$reviewed" > "$TEST_REPO/.git/info/grafts"
+  git -C "$TEST_REPO" checkout --quiet unrelated
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+  rm -f "$TEST_REPO/.git/info/grafts"
+  git -C "$TEST_REPO" checkout --quiet "$orig_branch"
+  git -C "$TEST_REPO" branch -D unrelated --quiet 2>/dev/null || true
+}
+
+@test "missing commit objects fail closed without fetching" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  _hooks_mark_trusted "$TEST_REPO/.wtrconfig"
+  # Simulate an incomplete object store: hide the reviewed commit object.
+  local reviewed obj
+  reviewed=$(_hooks_head_commit "$TEST_REPO")
+  obj="$TEST_REPO/.git/objects/${reviewed:0:2}/${reviewed:2}"
+  [ -f "$obj" ] || { echo "loose object not found; skipping"; return 0; }
+  mv "$obj" "$obj.hidden"
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+  mv "$obj.hidden" "$obj"
+  _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+}
+
+@test "legacy single-line markers cannot approve definitions" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  local trust_path
+  trust_path="$(_hooks_trust_path "$TEST_REPO/.wtrconfig")"
+  mkdir -p "$(dirname "$trust_path")"
+  printf '%s\n' "$TEST_REPO/.wtrconfig" > "$trust_path"
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+}
+
+@test "v4-format trust keys are invalidated by the v5 format" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  local hook_content repo_root repo_identity v4_key
+  hook_content=$(_hooks_read_definitions "$TEST_REPO/.wtrconfig")
+  repo_root=$(_hooks_repo_root "$TEST_REPO/.wtrconfig")
+  repo_identity=$(_hooks_repo_identity "$TEST_REPO")
+  v4_key=$(printf 'v4\n%s\n%s\n%s\n' "$repo_root" "$repo_identity" \
+    "$(_hooks_content_hash "$hook_content")" | shasum -a 256 | cut -d' ' -f1)
+  mkdir -p "$_WTR_TRUST_DIR"
+  printf '%s\n%s\n' "$TEST_REPO/.wtrconfig" "$(_hooks_head_commit "$TEST_REPO")" \
+    > "$_WTR_TRUST_DIR/$v4_key"
+  ! _hooks_are_trusted "$TEST_REPO/.wtrconfig"
+}
+
+@test "_hooks_head_descends_from validates real ancestry" {
+  git -C "$TEST_REPO" commit --allow-empty -m second --quiet
+  local head parent
+  head=$(_hooks_head_commit "$TEST_REPO")
+  parent=$(git -C "$TEST_REPO" rev-parse HEAD^)
+  _hooks_head_descends_from "$head" "$TEST_REPO"
+  _hooks_head_descends_from "$parent" "$TEST_REPO"
+  ! _hooks_head_descends_from "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" "$TEST_REPO"
+  ! _hooks_head_descends_from "not-a-sha" "$TEST_REPO"
+  ! _hooks_head_descends_from "" "$TEST_REPO"
+}
+
+@test "trust requires a HEAD commit to bind" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  local bare="$BATS_TMPDIR/bare-repo"
+  git init --bare --quiet "$bare"
+  ! _hooks_head_commit "$bare"
+  ! (cd "$bare" && _hooks_mark_trusted "$TEST_REPO/.wtrconfig")
+}
+
+# ── Trust approval history ────────────────────────────────────────────────
+
+@test "approving commands appends an audit record to the trust history" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  local reviewed trust_key history
+  reviewed=$(_hooks_head_commit "$TEST_REPO")
+  trust_key=$(_hooks_reviewed_trust_key "$TEST_REPO/.wtrconfig" "$(_hooks_read_definitions "$TEST_REPO/.wtrconfig")")
+  _hooks_mark_trusted "$TEST_REPO/.wtrconfig"
+
+  history="$_WTR_TRUST_DIR/history.log"
+  [ -f "$history" ]
+  local record
+  record=$(tail -1 "$history")
+  [[ "$record" == *"$TEST_REPO"* ]]
+  [[ "$record" == *"$reviewed"* ]]
+  [[ "$record" == *"$trust_key"* ]]
+}
+
+@test "history logging is best-effort and never blocks approval" {
+  git config -f "$TEST_REPO/.wtrconfig" hooks.postCd 'echo harmless'
+  # Make the history file unwritable; approval must still succeed.
+  mkdir -p "$_WTR_TRUST_DIR"
+  printf 'blocked\n' > "$_WTR_TRUST_DIR/history.log"
+  chmod 0444 "$_WTR_TRUST_DIR/history.log"
+  _hooks_mark_trusted "$TEST_REPO/.wtrconfig" || true
+  chmod 0644 "$_WTR_TRUST_DIR/history.log" 2>/dev/null || true
+  _hooks_are_trusted "$TEST_REPO/.wtrconfig"
 }

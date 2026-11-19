@@ -138,6 +138,7 @@ CFG
 
   if [ "$trust_state" = "trusted" ]; then
     (
+      cd "$wt"
       export XDG_CONFIG_HOME="$xdg"
       # shellcheck disable=SC1091
       . "$PROJECT_ROOT/lib/hooks.sh"
@@ -193,10 +194,13 @@ run_generated_replacement_repo_hooks() (
   export XDG_CONFIG_HOME="$fixture/config"
   mkdir -p "$REPO_FIXTURE"
   git -C "$REPO_FIXTURE" init --quiet
+  git -C "$REPO_FIXTURE" config user.name "Test User"
+  git -C "$REPO_FIXTURE" config user.email "test@example.com"
+  git -C "$REPO_FIXTURE" commit --allow-empty -m "init" --quiet
   git config -f "$REPO_FIXTURE/.wtrconfig" hooks.postCd 'sh "$REPO_ROOT/bootstrap.sh"'
   printf 'echo original > "$REPO_ROOT/hook-result"\n' > "$REPO_FIXTURE/bootstrap.sh"
   source "$PROJECT_ROOT/lib/hooks.sh"
-  _hooks_mark_trusted "$REPO_FIXTURE/.wtrconfig"
+  (cd "$REPO_FIXTURE" && _hooks_mark_trusted "$REPO_FIXTURE/.wtrconfig")
   cmd_init "$shell_name" > "$INIT_FIXTURE"
   "$shell_name" -c 'source "$INIT_FIXTURE"; wtr_run_post_cd_hooks "$REPO_FIXTURE"'
   [ "$(cat "$REPO_FIXTURE/hook-result")" = original ]
@@ -1014,7 +1018,7 @@ run_generated_replacement_repo_hooks() (
   [ "$output" != "old-cache" ]
   local stamp
   stamp="$(head -1 "$XDG_CACHE_HOME/wtr/init-wtr.bash")"
-  [[ "$stamp" == *"init=7"* ]]
+  [[ "$stamp" == *"init=8"* ]]
 }
 
 @test "documented bash setup regenerates old schema cache" {
@@ -1026,7 +1030,7 @@ run_generated_replacement_repo_hooks() (
 
   local stamp
   stamp="$(head -1 "$_wtr_init")"
-  [[ "$stamp" == *"init=7"* ]]
+  [[ "$stamp" == *"init=8"* ]]
 }
 
 @test "cache uses --as func name in cache key" {
@@ -1056,9 +1060,12 @@ run_generated_snapshot_replacement_hooks() (
   REAL_GIT=$(command -v git)
   mkdir -p "$REPO_FIXTURE" "$fixture/bin"
   git -C "$REPO_FIXTURE" init --quiet
+  git -C "$REPO_FIXTURE" config user.name "Test User"
+  git -C "$REPO_FIXTURE" config user.email "test@example.com"
+  git -C "$REPO_FIXTURE" commit --allow-empty -m "init" --quiet
   git config -f "$REPO_FIXTURE/.wtrconfig" hooks.postCd 'echo approved > "$REPO_ROOT/result"'
   source "$PROJECT_ROOT/lib/hooks.sh"
-  _hooks_mark_trusted "$REPO_FIXTURE/.wtrconfig"
+  (cd "$REPO_FIXTURE" && _hooks_mark_trusted "$REPO_FIXTURE/.wtrconfig")
   cmd_init "$shell_name" > "$INIT_FIXTURE"
   cat > "$fixture/bin/git" <<'WRAPPER'
 #!/usr/bin/env bash
